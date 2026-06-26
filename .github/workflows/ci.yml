@@ -23,6 +23,44 @@ jobs:
       - name: Production build
         run: npm run build
 
+  smoke:
+    name: smoke (headless render check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Pull Playwright's bundled Chromium + the Linux system libs it needs.
+      # scripts/smoke.mjs falls back to this when CHROME_PATH is unset.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+      # Serve the production build and boot it in headless Chromium (software WebGL
+      # via SwiftShader). The smoke test asserts no console/page errors, the frame
+      # loop ran, physics put the player on the ground, the hotbar built, and — the
+      # render check — that the voxel world actually drew (terrain fills the frame;
+      # a missing geometry upload would clear to bare sky and fail).
+      - name: Preview + smoke
+        env:
+          URL: http://localhost:4173/
+        run: |
+          npm run preview -- --port 4173 --strictPort &
+          PREVIEW_PID=$!
+          for i in $(seq 1 30); do curl -sf http://localhost:4173/ >/dev/null && break; sleep 1; done
+          npm run smoke
+          kill $PREVIEW_PID
+      - name: Upload smoke screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-screenshot
+          path: scripts/screenshot.png
+          if-no-files-found: ignore
+
   mutation:
     name: mutation testing (falsifiability gate)
     runs-on: ubuntu-latest

@@ -11,7 +11,7 @@ proves those oracles actually catch bugs.
 npm test            # run all 60 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation    # StrykerJS — mutate the core, report which mutants survive
-npm run smoke       # headless-Chrome boot/render check (start `npm run dev` first)
+npm run smoke       # headless-Chromium boot/render check (start a dev/preview server first)
 npm run typecheck   # tsc --noEmit
 ```
 
@@ -123,10 +123,35 @@ node ".../test-oracle/scripts/oracle-doctor.mjs" .
 It checks the wiring (deps, scripts, configs) and lists any module lacking a sibling oracle.
 Current state: **10/11 modules paired**. The one exception is `src/main.ts` — the browser
 entry shell (DOM, WebGL, the frame loop) which can't be imported in Node. It is covered by
-the **smoke test** (`scripts/smoke.mjs`) instead: a headless Chrome run that boots the game,
+the **smoke test** (`scripts/smoke.mjs`) instead: a headless Chromium run that boots the game,
 asserts no console/page errors, that the frame loop ran (HUD shows coordinates), that the
-player resolved onto the ground, that the hotbar built, and that the canvas actually
-rendered.
+player resolved onto the ground, and that the hotbar built.
+
+### The render check is a falsifiable oracle, not a byte-size heuristic
+
+The smoke test's hardest job is proving the WebGL canvas *actually drew the world* — the
+classic silent failure (a failed shader, geometry that never uploaded, a lost context)
+leaves a blank or single-colour canvas while everything else looks fine. The check is a
+**pixel census**, not "is the PNG big enough": it screenshots the canvas, decodes it back to
+pixels in the page, and pins three independent facts the real frame satisfies and a broken
+one cannot — terrain **fills** the frame (≥50% of pixels are not the sky clear-colour),
+the frame has real luminance **variance** (a flat canvas has std ≈ 0), and it has **many
+distinct colours** (a single-colour canvas has ~1). It first hides the DOM chrome, because
+in headless there is no gesture to take pointer-lock, so the start overlay's 60%-black scrim
+stays up and would otherwise darken the sky into a terrain-like tone.
+
+Proven falsifiable the same way the unit oracles are — by watching it fail: dropping the
+terrain mesh from the scene clears the canvas to bare sky, and the census collapses to
+`nonSkyFraction 0, lumStd 0, 1 colour` → all three render checks fire (the equivalent of a
+killed mutant for the shell).
+
+### CI-portable
+
+The browser path is env-driven: `CHROME_PATH` selects a system Chrome, and otherwise the
+test falls back to Playwright's bundled Chromium (`npx playwright install chromium`). So the
+same script runs locally and as the **`smoke` CI job**, which builds, serves `vite preview`,
+and runs the render check (software WebGL via SwiftShader) on every push — WebGL rendering is
+verified in CI, not just on a developer's Mac.
 
 ## Adding an oracle for a new module
 
@@ -146,12 +171,18 @@ rendered.
 ## CI suggestion
 
 ```yaml
-# .github/workflows/ci.yml (sketch)
+# .github/workflows/ci.yml (sketch — see the real file for the full smoke job)
 - run: npm ci
 - run: npm run typecheck
 - run: npm test
 - run: npm run mutation     # fails if score < break threshold (70)
+# render check: build, serve, boot in headless Chromium, census the framebuffer
+- run: npx playwright install --with-deps chromium
+- run: npm run build
+- run: npm run preview -- --port 4173 --strictPort &
+- run: URL=http://localhost:4173/ npm run smoke
 ```
 
 The mutation step is what keeps the suite honest over time: as the code changes, a dropping
-score means new blind spots.
+score means new blind spots. The smoke job does the same for the shell — if the render ever
+silently breaks, the pixel census fails CI.

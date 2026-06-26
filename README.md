@@ -14,7 +14,7 @@ npm install
 npm run dev        # play at http://localhost:5173
 npm test           # 60 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
-npm run smoke      # headless-Chrome boot/render check (needs `npm run dev` running)
+npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
 
 **Controls:** click to lock the mouse · `WASD` move · mouse look · `Space` jump ·
