@@ -1,7 +1,7 @@
 # Testing & the Oracle Methodology
 
 This project was built with the [`test-oracle`](https://github.com/PSthelyBlog/test-oracle)
-plugin. The thesis: a green test suite means nothing if the tests can't *fail*. So every
+plugin. The thesis: a green test suite means nothing if the tests can't _fail_. So every
 logic module has an **independent, per-case, falsifiable oracle**, and **mutation testing**
 proves those oracles actually catch bugs.
 
@@ -21,18 +21,18 @@ Stack: **Vitest** (runner), **fast-check** (property-based generators), **Stryke
 
 ## What makes an oracle, not just a test
 
-A weak test asserts the code returns *something*. An **oracle** asserts a property that must
+A weak test asserts the code returns _something_. An **oracle** asserts a property that must
 hold, stated **independently of the implementation**, so it disagrees when the code is wrong.
 The shapes used here:
 
-| Shape | Meaning | Example in this repo |
-|-------|---------|----------------------|
-| **Round-trip / inverse** | `decode(encode(x)) === x` | `chunkGeometry` uploads exactly what the mesher emitted |
-| **Census / bijection** | every case mapped exactly once | `world.index` is a bijection onto `[0, volume)` |
-| **Independent re-derivation** | a *different algorithm* computes the same answer | analytic slab ray/AABB vs the DDA `raycast` |
-| **Metamorphic** | a transformed input changes the output predictably | diagonal speed == cardinal speed; a solid cube shows only its shell |
-| **Invariant** | a property that always holds | resolved player box is never inside solid; `opaque ⇒ solid` |
-| **Golden** | deterministic output frozen once | terrain world hash; block-colour hash |
+| Shape                         | Meaning                                            | Example in this repo                                                |
+| ----------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- |
+| **Round-trip / inverse**      | `decode(encode(x)) === x`                          | `chunkGeometry` uploads exactly what the mesher emitted             |
+| **Census / bijection**        | every case mapped exactly once                     | `world.index` is a bijection onto `[0, volume)`                     |
+| **Independent re-derivation** | a _different algorithm_ computes the same answer   | analytic slab ray/AABB vs the DDA `raycast`                         |
+| **Metamorphic**               | a transformed input changes the output predictably | diagonal speed == cardinal speed; a solid cube shows only its shell |
+| **Invariant**                 | a property that always holds                       | resolved player box is never inside solid; `opaque ⇒ solid`         |
+| **Golden**                    | deterministic output frozen once                   | terrain world hash; block-colour hash                               |
 
 The strongest oracles here are the **independent re-derivations** — the analytic ray/AABB
 intersection for `raycast`, and the interval-overlap check for `physics` — because they share
@@ -40,13 +40,13 @@ no code with the function under test.
 
 ## Why mutation testing, and what it found
 
-`npm test` being green only proves the oracles *pass*. **Mutation testing** deliberately
+`npm test` being green only proves the oracles _pass_. **Mutation testing** deliberately
 breaks the source (flips `<` to `<=`, `+` to `-`, deletes statements) and re-runs the tests.
 A mutant that survives is a bug your tests would not have caught — a **blind spot**.
 
 Treating every survivor as a blind spot during development surfaced real problems:
 
-1. **A real rendering bug.** The mesher's quad corners were wound *clockwise* as seen from
+1. **A real rendering bug.** The mesher's quad corners were wound _clockwise_ as seen from
    outside. With default front-face culling that makes every face invisible. The winding
    oracle (cross-product of the first triangle vs the stored normal) caught it; the fix was
    to reorder the corners CCW-outward.
@@ -55,12 +55,12 @@ Treating every survivor as a blind spot during development surfaced real problem
    version agreed with itself and survived. Fixed by writing an **independent** overlap
    check in the test.
 3. **A count-blind oracle.** The mesher face-count census couldn't see a mutation that
-   swapped *which* neighbour culls *which* face — the total count was identical. Fixed with
+   swapped _which_ neighbour culls _which_ face — the total count was identical. Fixed with
    a **directional** oracle (`isFaceVisible` per face).
 4. **A flat-world blind spot.** The physics differential test ran over a flat floor (solid at
    every x,z), so bugs in the box's X/Z extent couldn't change the result. Fixed by testing
    over a **sparse** world.
-5. **Coverage gaps.** The Z-axis collision branch and player-movement *direction* (as opposed
+5. **Coverage gaps.** The Z-axis collision branch and player-movement _direction_ (as opposed
    to speed) were never exercised. Fixed with targeted cases.
 
 ## The incremental-cache footgun: `mutation` vs `mutation:clean`
@@ -69,7 +69,7 @@ Treating every survivor as a blind spot during development surfaced real problem
 mutants your change touched — a big speedup while you iterate. The catch: the incremental
 cache (`reports/stryker-incremental.json`) and sandbox (`.stryker-tmp`) persist between
 runs, so a **second back-to-back `npm run mutation` can reuse cached mutant verdicts and
-overwrite `reports/mutation/mutation.json` with them.** A mutant you just *killed* can then
+overwrite `reports/mutation/mutation.json` with them.** A mutant you just _killed_ can then
 show as `Survived` (and vice-versa) — the exact stale-report failure mode mutation testing
 exists to prevent. (Seen for real in #6: a `raycast.ts` mutant reported `Survived` while the
 test provably killed it.) The Stryker CLI in this version accepts no `--incremental false`
@@ -91,18 +91,18 @@ correctness bug. `mutation:clean` propagates Stryker's exit code, so it gates on
 Run `npm run mutation:clean` for the authoritative live numbers (see the footgun above for
 why `mutation:clean` and not `mutation`). As of this base implementation:
 
-| Module | Mutation score | Notes |
-|--------|---------------:|-------|
-| `blocks.ts` | 100% | static data; falsifiability proven by injection (see below) |
-| `math.ts` | 100% | |
-| `movement.ts` | 100% | |
-| `atlas.ts` | 100% | texture-atlas layout; `TILE_COLOR` static (injection-proven) |
-| `physics.ts` | ~98% | |
-| `world.ts` | ~97% | |
-| `mesher.ts` | ~97% | incl. chunked meshing + UVs; 3 equivalent sign mutants (see below) |
-| `terrain.ts` | ~95% | |
-| `raycast.ts` | ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below) |
-| **overall** | **~96%** | 81 tests across 14 files |
+| Module        | Mutation score | Notes                                                                 |
+| ------------- | -------------: | --------------------------------------------------------------------- |
+| `blocks.ts`   |           100% | static data; falsifiability proven by injection (see below)           |
+| `math.ts`     |           100% |                                                                       |
+| `movement.ts` |           100% |                                                                       |
+| `atlas.ts`    |           100% | texture-atlas layout; `TILE_COLOR` static (injection-proven)          |
+| `physics.ts`  |           ~98% |                                                                       |
+| `world.ts`    |           ~97% |                                                                       |
+| `mesher.ts`   |           ~97% | incl. chunked meshing + UVs; 3 equivalent sign mutants (see below)    |
+| `terrain.ts`  |           ~95% |                                                                       |
+| `raycast.ts`  |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below) |
+| **overall**   |       **~96%** | 81 tests across 14 files                                              |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
@@ -110,7 +110,7 @@ run fails CI below 70.
 ## Equivalent mutants (why not 100%)
 
 Some surviving mutants are **equivalent** — they change the source without changing any
-observable behaviour, so *no* test can kill them. The methodology says to analyse and
+observable behaviour, so _no_ test can kill them. The methodology says to analyse and
 document these, not to chase a vanity number. The ones left here:
 
 - **Loop bounds that read one cell out of bounds** (`y < sizeY` → `y <= sizeY` in the
@@ -118,22 +118,22 @@ document these, not to chase a vanity number. The ones left here:
 - **Empty error-message strings** (`world.ts` constructor): the error still throws; the
   message text is not behaviour.
 - **`raycast.ts` degenerate-input survivors.** The DDA's behaviour on measure-zero inputs
-  used to leave ~16% of mutants alive. The *intentional* conventions are now **pinned with
+  used to leave ~16% of mutants alive. The _intentional_ conventions are now **pinned with
   golden cases** (`describe("raycast degenerate-input conventions")`): the zero-reach and
-  zero-direction guards both fire before the inside-block hit; a block entered at *exactly*
+  zero-direction guards both fire before the inside-block hit; a block entered at _exactly_
   `maxDist` is hit while one just beyond is missed; and exact edge/corner ties break by axis
   priority **X > Y > Z**. What remains (raycast ~92%) is genuinely **equivalent**:
-  - *zero-direction step sign* (`d > 0` → `d >= 0` on each axis): when a direction component
+  - _zero-direction step sign_ (`d > 0` → `d >= 0` on each axis): when a direction component
     is exactly 0 that axis' `tMax` is `Infinity` and is never selected, so the step value is
     never read.
-  - *`d !== 0 ? abs(1/d) : Infinity` → `true`*: `1/0` is already `Infinity`, so forcing the
+  - _`d !== 0 ? abs(1/d) : Infinity` → `true`_: `1/0` is already `Infinity`, so forcing the
     division branch produces the identical value.
-  - *dead `normal` initializer* (`[0,0,0]` → `[]`): every return path assigns `normal` first
+  - _dead `normal` initializer_ (`[0,0,0]` → `[]`): every return path assigns `normal` first
     (or uses a literal), so the initial value is never observed.
-  - *`while (t <= maxDist)` → `t < maxDist`*: differs only when a voxel boundary lands at
-    `t === maxDist` exactly *and* the next cell is reached at the same `t` (a corner exactly
+  - _`while (t <= maxDist)` → `t < maxDist`_: differs only when a voxel boundary lands at
+    `t === maxDist` exactly _and_ the next cell is reached at the same `t` (a corner exactly
     at the reach limit) — a measure-zero input.
-  - *`step > 0` → `step >= 0`* in `boundaryT`: unreachable, because `step === 0` already
+  - _`step > 0` → `step >= 0`_ in `boundaryT`: unreachable, because `step === 0` already
     returned `Infinity` one line above.
 - **`min(sizeY-1, h)` clamp** (`terrain.ts`): the terrain amplitude never reaches the cap,
   so the clamp never binds.
@@ -143,12 +143,12 @@ document these, not to chase a vanity number. The ones left here:
   `coord - delta`): the offset list is symmetric (each axis appears as both `+1` and `−1`),
   so flipping a sign visits the same neighbours in a different order and returns the **same
   chunk set**. Only the set matters, so these 3 mutants are equivalent. (The chunk-count
-  `chunkDims` mutants — `/` → `*` — were *not* equivalent and were killed by a minimal-cover
+  `chunkDims` mutants — `/` → `*` — were _not_ equivalent and were killed by a minimal-cover
   oracle: extra chunks are empty so the face census misses them, but `(n−1)·size < dim` does
   not.)
 
 `raycast.ts` used to sit lowest (~84%) precisely because DDA traversal has many
-degenerate-input guards. The ones that encode a *choice* (tie-break order, inclusive reach,
+degenerate-input guards. The ones that encode a _choice_ (tie-break order, inclusive reach,
 the entry guards) are now pinned with explicit golden cases, lifting it to ~92%; the
 remainder above are the survivors that no test can kill because nothing observes them.
 
@@ -178,7 +178,7 @@ player resolved onto the ground, and that the hotbar built.
 
 ### The render check is a falsifiable oracle, not a byte-size heuristic
 
-The smoke test's hardest job is proving the WebGL canvas *actually drew the world* — the
+The smoke test's hardest job is proving the WebGL canvas _actually drew the world_ — the
 classic silent failure (a failed shader, geometry that never uploaded, a lost context)
 leaves a blank or single-colour canvas while everything else looks fine. The check is a
 **pixel census**, not "is the PNG big enough": it screenshots the canvas, decodes it back to
@@ -206,7 +206,7 @@ verified in CI, not just on a developer's Mac.
 
 1. Create `src/.../foo.ts` with pure logic (no DOM/Three.js — keep it in the core).
 2. Add `src/.../foo.test.ts`. Ask **"how could this fail silently?"** and pick a shape from
-   the table above. Prefer an *independent* re-derivation or a census over re-stating the
+   the table above. Prefer an _independent_ re-derivation or a census over re-stating the
    implementation.
 3. `npm test` — make it green.
 4. `npm run mutation` — **watch it fail**. Every survivor is a missing check. Add an
@@ -224,7 +224,7 @@ verified in CI, not just on a developer's Mac.
 - run: npm ci
 - run: npm run typecheck
 - run: npm test
-- run: npm run mutation     # fails if score < break threshold (70)
+- run: npm run mutation # fails if score < break threshold (70)
 # render check: build, serve, boot in headless Chromium, census the framebuffer
 - run: npx playwright install --with-deps chromium
 - run: npm run build

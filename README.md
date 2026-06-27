@@ -25,12 +25,12 @@ npm run smoke      # headless-Chromium boot/render check (needs a dev/preview se
 
 ## Documentation
 
-| Doc | What's in it |
-|-----|--------------|
+| Doc                                          | What's in it                                                                                                                                  |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, the pure-core/thin-shell split, coordinate & angle conventions, the per-frame data flow, the rendering pipeline, key constants |
-| [docs/API.md](docs/API.md) | Full reference for every exported symbol in `src/core` and `src/game`, with the invariant each oracle pins |
-| [docs/TESTING.md](docs/TESTING.md) | The oracle methodology, the oracle shapes, what mutation testing found, current scores, equivalent mutants, and how to add an oracle |
-| [docs/EXTENDING.md](docs/EXTENDING.md) | How-to recipes: add a block, change world size, retune physics, add terrain, textures, chunking |
+| [docs/API.md](docs/API.md)                   | Full reference for every exported symbol in `src/core` and `src/game`, with the invariant each oracle pins                                    |
+| [docs/TESTING.md](docs/TESTING.md)           | The oracle methodology, the oracle shapes, what mutation testing found, current scores, equivalent mutants, and how to add an oracle          |
+| [docs/EXTENDING.md](docs/EXTENDING.md)       | How-to recipes: add a block, change world size, retune physics, add terrain, textures, chunking                                               |
 
 ## Architecture: pure core, thin shell
 
@@ -61,21 +61,21 @@ the headless **smoke test** (`scripts/smoke.mjs`) rather than a unit oracle.
 ## The oracle methodology
 
 Each module has a paired `*.test.ts` with oracles chosen for its failure mode — not
-"does it return something", but *"what invariant must hold, stated independently of the
-implementation?"*. Examples:
+"does it return something", but _"what invariant must hold, stated independently of the
+implementation?"_. Examples:
 
 - **world** — `index()` must be a **bijection** onto `[0, volume)` (census: no
   collisions, full coverage). Catches any off-by-one or swapped stride.
 - **raycast** — an **independent analytic slab/AABB intersection** re-derives the hit
   distance and face from scratch; the DDA must agree, for arbitrary directions.
-- **mesher** — face count is checked against an **independent neighbour census**, *and*
-  a directional oracle pins that a face is culled by the neighbour in *its own*
-  direction (a count-only check can't see that), *and* a winding oracle verifies each
+- **mesher** — face count is checked against an **independent neighbour census**, _and_
+  a directional oracle pins that a face is culled by the neighbour in _its own_
+  direction (a count-only check can't see that), _and_ a winding oracle verifies each
   quad faces outward.
 - **terrain** — a **golden hash** freezes the deterministic output; property tests assert
   the layering contract (bedrock floor, grass/sand surface, stone core, water ≤ sea).
 - **physics / movement** — the resolved box is checked against an **independent overlap
-  oracle** (not the function under test — that would be self-referential), over a *sparse*
+  oracle** (not the function under test — that would be self-referential), over a _sparse_
   world so every axis' bounds matter.
 
 ### Mutation testing found real problems
@@ -88,7 +88,7 @@ among others:
 - a **self-referential oracle** — physics used `boxIntersectsSolid` to check its own
   output, so a mutated version agreed with itself (fixed with an independent checker);
 - a **count-blind oracle** — swapping which neighbour culls which face left the face
-  *count* identical (fixed with a directional oracle);
+  _count_ identical (fixed with a directional oracle);
 - **coverage gaps** — the Z-collision branch and player-movement direction were never
   exercised.
 
@@ -96,11 +96,11 @@ Current score: **~96%**. The remaining survivors are documented **equivalent mut
 (loop bounds that read out-of-bounds → Air with no effect, empty error-message strings,
 `1/0 === Infinity` branches, unreachable degenerate-input guards) — the methodology says to
 analyse and leave those, not to chase a vanity 100%. Where a survivor encoded an actual
-*choice* — raycast's corner tie-break order, inclusive reach, entry guards — it was pinned
+_choice_ — raycast's corner tie-break order, inclusive reach, entry guards — it was pinned
 with a golden case instead, so the behaviour is intentional rather than incidental.
 
 Static data (`blocks.ts`) is verified falsifiable by direct injection and excluded from
-the mutation *score* via `ignoreStatic` (Stryker can't activate import-time-constant
+the mutation _score_ via `ignoreStatic` (Stryker can't activate import-time-constant
 mutants with the Vitest runner).
 
 ## Plugin commands used

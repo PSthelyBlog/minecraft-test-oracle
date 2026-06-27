@@ -39,7 +39,9 @@ selfCheck();
 // ---------------------------------------------------------------------------
 // World
 // ---------------------------------------------------------------------------
-const SIZE_X = 80, SIZE_Y = 32, SIZE_Z = 80;
+const SIZE_X = 80,
+  SIZE_Y = 32,
+  SIZE_Z = 80;
 const SEED = 20090513; // Minecraft Classic's first public release date :)
 
 const world = new World(SIZE_X, SIZE_Y, SIZE_Z);
@@ -243,7 +245,8 @@ function updateHighlight(): void {
 }
 
 function resize(): void {
-  const w = window.innerWidth, h = window.innerHeight;
+  const w = window.innerWidth,
+    h = window.innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -252,7 +255,9 @@ window.addEventListener("resize", resize);
 resize();
 
 let last = performance.now();
-let fpsT = 0, frames = 0, fps = 0;
+let fpsT = 0,
+  frames = 0,
+  fps = 0;
 
 function frame(now: number): void {
   const dt = Math.min((now - last) / 1000, 0.05);
@@ -263,8 +268,13 @@ function frame(now: number): void {
   updateHighlight();
   renderer.render(scene, camera);
 
-  frames++; fpsT += dt;
-  if (fpsT >= 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
+  frames++;
+  fpsT += dt;
+  if (fpsT >= 0.5) {
+    fps = Math.round(frames / fpsT);
+    frames = 0;
+    fpsT = 0;
+  }
   const [px, py, pz] = player.pos;
   const held = blockDef(HOTBAR[selected]).name;
   hud.innerHTML =

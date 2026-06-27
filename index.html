@@ -5,43 +5,122 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Minecraft Classic Clone</title>
     <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: monospace; }
-      #app { width: 100vw; height: 100vh; display: block; }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: monospace;
+      }
+      #app {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
       #crosshair {
-        position: fixed; left: 50%; top: 50%; width: 20px; height: 20px;
-        transform: translate(-50%, -50%); pointer-events: none; z-index: 10;
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        width: 20px;
+        height: 20px;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 10;
         mix-blend-mode: difference;
       }
-      #crosshair::before, #crosshair::after {
-        content: ""; position: absolute; background: #fff;
+      #crosshair::before,
+      #crosshair::after {
+        content: "";
+        position: absolute;
+        background: #fff;
       }
-      #crosshair::before { left: 9px; top: 0; width: 2px; height: 20px; }
-      #crosshair::after { top: 9px; left: 0; height: 2px; width: 20px; }
+      #crosshair::before {
+        left: 9px;
+        top: 0;
+        width: 2px;
+        height: 20px;
+      }
+      #crosshair::after {
+        top: 9px;
+        left: 0;
+        height: 2px;
+        width: 20px;
+      }
       #hud {
-        position: fixed; left: 0; bottom: 0; padding: 10px 14px; z-index: 10;
-        color: #fff; font-size: 13px; line-height: 1.5; text-shadow: 1px 1px 0 #000;
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        padding: 10px 14px;
+        z-index: 10;
+        color: #fff;
+        font-size: 13px;
+        line-height: 1.5;
+        text-shadow: 1px 1px 0 #000;
         pointer-events: none;
       }
       #hotbar {
-        position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
-        display: flex; gap: 4px; z-index: 10;
+        position: fixed;
+        left: 50%;
+        bottom: 12px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 4px;
+        z-index: 10;
       }
       .slot {
-        width: 44px; height: 44px; border: 2px solid #555; background: rgba(0,0,0,0.4);
-        display: flex; align-items: center; justify-content: center;
-        font-size: 10px; color: #fff; text-shadow: 1px 1px 0 #000; text-align: center;
+        width: 44px;
+        height: 44px;
+        border: 2px solid #555;
+        background: rgba(0, 0, 0, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        color: #fff;
+        text-shadow: 1px 1px 0 #000;
+        text-align: center;
       }
-      .slot.active { border-color: #fff; }
-      .swatch { width: 28px; height: 28px; border: 1px solid #000; }
+      .slot.active {
+        border-color: #fff;
+      }
+      .swatch {
+        width: 28px;
+        height: 28px;
+        border: 1px solid #000;
+      }
       #overlay {
-        position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
-        align-items: center; justify-content: center; gap: 16px;
-        background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; text-align: center;
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        cursor: pointer;
+        text-align: center;
       }
-      #overlay h1 { font-size: 28px; letter-spacing: 2px; }
-      #overlay p { font-size: 14px; opacity: 0.85; max-width: 520px; line-height: 1.7; }
-      #overlay.hidden { display: none; }
+      #overlay h1 {
+        font-size: 28px;
+        letter-spacing: 2px;
+      }
+      #overlay p {
+        font-size: 14px;
+        opacity: 0.85;
+        max-width: 520px;
+        line-height: 1.7;
+      }
+      #overlay.hidden {
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -53,8 +132,10 @@
       <h1>MINECRAFT CLASSIC CLONE</h1>
       <p>
         Click to play.<br />
-        <b>WASD</b> move &nbsp;·&nbsp; <b>Mouse</b> look &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Shift</b> sneak<br />
-        <b>Left click</b> break &nbsp;·&nbsp; <b>Right click</b> place &nbsp;·&nbsp; <b>1–9</b> / scroll select block<br />
+        <b>WASD</b> move &nbsp;·&nbsp; <b>Mouse</b> look &nbsp;·&nbsp; <b>Space</b> jump
+        &nbsp;·&nbsp; <b>Shift</b> sneak<br />
+        <b>Left click</b> break &nbsp;·&nbsp; <b>Right click</b> place &nbsp;·&nbsp; <b>1–9</b> /
+        scroll select block<br />
         <b>F</b> toggle fly &nbsp;·&nbsp; <b>Esc</b> release mouse
       </p>
     </div>

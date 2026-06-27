@@ -12,7 +12,13 @@ run `npm test` then `npm run mutation`.
 
    export const BLOCKS = {
      // ...existing...
-     [Block.Snow]: { id: Block.Snow, name: "Snow", solid: true, opaque: true, color: rgb(245, 245, 250) },
+     [Block.Snow]: {
+       id: Block.Snow,
+       name: "Snow",
+       solid: true,
+       opaque: true,
+       color: rgb(245, 245, 250),
+     },
    };
    ```
    Keep ids **contiguous from 0** (the world is a `Uint8Array`).
@@ -48,7 +54,9 @@ need its `expect([...]).toContain(surface)` set updated to include `Snow`.
 In `src/main.ts`:
 
 ```ts
-const SIZE_X = 128, SIZE_Y = 48, SIZE_Z = 128;
+const SIZE_X = 128,
+  SIZE_Y = 48,
+  SIZE_Z = 128;
 ```
 
 No core change is needed — `World`, the mesher, and physics are size-agnostic. But note the
@@ -117,7 +125,7 @@ wiring in `src/render/chunkedTerrain.ts`):
   neighbours across chunk borders** (via `world.get`, Air out of bounds), so seams are
   face-culled correctly. `buildMesh` is just the whole-world case of the same code path.
 - `chunkDims(world, chunkSize?)` is the chunk count per axis; `chunksAffectedByEdit(world,
-  x, y, z, chunkSize?)` returns the chunk of the edited cell plus any neighbour chunk across
+x, y, z, chunkSize?)` returns the chunk of the edited cell plus any neighbour chunk across
   a border — exactly the set the renderer rebuilds.
 - `ChunkedTerrain` (render shell) holds a `Mesh` per non-empty chunk in a `Group` and
   exposes `rebuildAround(x, y, z)`.
@@ -127,7 +135,7 @@ The oracles that pin it (`src/core/mesher.test.ts`, `src/render/chunkedTerrain.t
 - **Census** — Σ per-chunk `faceCount` == whole-world `buildMesh().faceCount`, for any world
   and chunk size, plus a golden seam case (a block pair straddling a border still culls →
   10, not 12).
-- **Seam multiset** — the *set* of faces across chunks equals the whole-world set exactly
+- **Seam multiset** — the _set_ of faces across chunks equals the whole-world set exactly
   (catches a border face dropped in one chunk and re-emitted in another).
 - **Edit-impact differential** — every chunk whose mesh actually changes after an edit is in
   `chunksAffectedByEdit` (so the renderer never leaves a stale seam).

@@ -12,7 +12,7 @@ export function selfCheck() {
   // EXAMPLE invariant — delete and replace with yours:
   const encode = (b) => {
     const o = [];
-    for (let i = 0; i < b.length; ) {
+    for (let i = 0; i < b.length;) {
       let j = i + 1;
       while (j < b.length && b[j] === b[i]) j++;
       o.push(j - i, b[i]);

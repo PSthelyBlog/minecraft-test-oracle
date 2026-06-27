@@ -23,7 +23,8 @@ describe("atlas oracle", () => {
   // [0,1]², and the rect's corner recovers the tile's (col, row) — i.e. no two tiles
   // overlap and none escapes the atlas. An independent recomputation, not a restatement.
   test("every tile occupies its own unit cell within [0,1]²", () => {
-    const w = 1 / ATLAS_COLS, h = 1 / ATLAS_ROWS;
+    const w = 1 / ATLAS_COLS,
+      h = 1 / ATLAS_ROWS;
     for (let t = 0; t < ATLAS_COLS * ATLAS_ROWS; t++) {
       const r = uvRectForTile(t);
       // size is exactly one cell

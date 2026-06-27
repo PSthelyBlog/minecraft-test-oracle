@@ -10,12 +10,7 @@
 
 import { Group, Mesh, type Material } from "three";
 import type { World } from "../core/world";
-import {
-  buildChunkMesh,
-  chunkDims,
-  chunksAffectedByEdit,
-  CHUNK_SIZE,
-} from "../core/mesher";
+import { buildChunkMesh, chunkDims, chunksAffectedByEdit, CHUNK_SIZE } from "../core/mesher";
 import { geometryFromMesh } from "./chunkGeometry";
 
 export class ChunkedTerrain {
@@ -34,8 +29,7 @@ export class ChunkedTerrain {
     this.meshes = new Array(this.dims.nx * this.dims.ny * this.dims.nz).fill(null);
     for (let cy = 0; cy < this.dims.ny; cy++)
       for (let cz = 0; cz < this.dims.nz; cz++)
-        for (let cx = 0; cx < this.dims.nx; cx++)
-          this.buildChunk(cx, cy, cz);
+        for (let cx = 0; cx < this.dims.nx; cx++) this.buildChunk(cx, cy, cz);
   }
 
   private slot(cx: number, cy: number, cz: number): number {

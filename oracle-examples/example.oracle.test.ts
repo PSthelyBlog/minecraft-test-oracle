@@ -5,7 +5,7 @@ import fc from "fast-check";
 // so this file passes out of the box and shows the three core oracle shapes.
 function encode(bytes) {
   const out = [];
-  for (let i = 0; i < bytes.length; ) {
+  for (let i = 0; i < bytes.length;) {
     let j = i + 1;
     while (j < bytes.length && bytes[j] === bytes[i]) j++;
     out.push(j - i, bytes[i]);

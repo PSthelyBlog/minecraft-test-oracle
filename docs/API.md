@@ -69,18 +69,18 @@ isAir(id: BlockId): boolean
 
 ```ts
 class World {
-  constructor(sizeX: number, sizeY: number, sizeZ: number)   // throws on non-positive / non-integer
+  constructor(sizeX: number, sizeY: number, sizeZ: number); // throws on non-positive / non-integer
 
-  readonly sizeX: number
-  readonly sizeY: number
-  readonly sizeZ: number
-  readonly data: Uint8Array                  // length = sizeX*sizeY*sizeZ
+  readonly sizeX: number;
+  readonly sizeY: number;
+  readonly sizeZ: number;
+  readonly data: Uint8Array; // length = sizeX*sizeY*sizeZ
 
-  inBounds(x, y, z): boolean
-  index(x, y, z): number                     // x + sizeX*(z + sizeZ*y); valid only in-bounds
-  get(x, y, z): BlockId                       // out of bounds → Block.Air
-  set(x, y, z, id: BlockId): boolean          // out of bounds → ignored, returns false
-  get volume(): number                        // sizeX*sizeY*sizeZ
+  inBounds(x, y, z): boolean;
+  index(x, y, z): number; // x + sizeX*(z + sizeZ*y); valid only in-bounds
+  get(x, y, z): BlockId; // out of bounds → Block.Air
+  set(x, y, z, id: BlockId): boolean; // out of bounds → ignored, returns false
+  get volume(): number; // sizeX*sizeY*sizeZ
 }
 ```
 
@@ -154,13 +154,13 @@ into the exact whole-world mesh — no seams. Vertices are emitted in **world** 
 each chunk's geometry sits at the origin.
 
 > Invariants: face count equals an independent neighbour census; a face is culled by the
-> neighbour in *its own* direction (not the opposite); quad winding faces outward (cross of
+> neighbour in _its own_ direction (not the opposite); quad winding faces outward (cross of
 > the first triangle aligns with the stored normal); buffer sizes stay consistent
 > (`positions.length === faceCount*12`, `uvs.length === faceCount*8`, `indices.length ===
-> faceCount*6`).
+faceCount*6`).
 > **Chunking:** Σ per-chunk `faceCount` == whole-world `faceCount` and the per-chunk face
-> *sets* union to the whole-world set; `chunkDims` is the minimal cover (`(n−1)·size < dim ≤
-> n·size`); `chunksAffectedByEdit` reports every chunk an edit can change.
+> _sets_ union to the whole-world set; `chunkDims` is the minimal cover (`(n−1)·size < dim ≤
+n·size`); `chunksAffectedByEdit` reports every chunk an edit can change.
 > **Textures:** each face's 4 UVs equal `uvRectForTile(tileIndexFor(block, face))`.
 
 ---
@@ -196,15 +196,15 @@ generateTerrain(world: World, seed: number, seaLevel?: number): void  // fills w
 `generateTerrain` is a pure function of `(seed, size, seaLevel)` — identical inputs produce
 byte-identical worlds. Default `seaLevel = floor(sizeY * 0.42)`. Column layering, top-down:
 
-| `y` | block |
-|-----|-------|
-| `y === height` and `height ≤ sea+1` | Sand (beaches) |
-| `y === height` otherwise | Grass |
-| `height-3 ≤ y < height` | Dirt |
-| `1 ≤ y < height-3` | Stone |
-| `y === 0` | Bedrock (permanent floor) |
-| `height < y ≤ sea` | Water |
-| else | Air |
+| `y`                                 | block                     |
+| ----------------------------------- | ------------------------- |
+| `y === height` and `height ≤ sea+1` | Sand (beaches)            |
+| `y === height` otherwise            | Grass                     |
+| `height-3 ≤ y < height`             | Dirt                      |
+| `1 ≤ y < height-3`                  | Stone                     |
+| `y === 0`                           | Bedrock (permanent floor) |
+| `height < y ≤ sea`                  | Water                     |
+| else                                | Air                       |
 
 > Invariants: a golden hash freezes the output for a fixed seed; same seed → identical
 > bytes, different seed → different bytes; `heightAt ∈ [1, sizeY-1]`; the layering contract
@@ -233,7 +233,7 @@ bleed is the caller's job). Assumes the starting box is not already embedded in 
 geometry, and that `|delta|` per axis is below one block (true for clamped frame steps) —
 it is an endpoint test, not a continuous sweep.
 
-> Invariants: `boxIntersectsSolid` matches an *independent* overlap oracle over a sparse
+> Invariants: `boxIntersectsSolid` matches an _independent_ overlap oracle over a sparse
 > world (so all three axes' bounds matter); after a sub-block step from a free start the box
 > is never inside solid; landing flags `onGround`; a wall collision cancels only the blocked
 > axis; a ceiling collides on Y but is not `onGround`.
@@ -309,9 +309,9 @@ Classic pixels. Used as the terrain material's `map` in `main.ts`.
 
 ```ts
 class ChunkedTerrain {
-  constructor(world: World, material: THREE.Material, chunkSize?: number)
-  readonly group: THREE.Group            // add to the scene; one Mesh per non-empty chunk
-  rebuildAround(x, y, z): void           // remesh only the chunks an edit at (x,y,z) touches
+  constructor(world: World, material: THREE.Material, chunkSize?: number);
+  readonly group: THREE.Group; // add to the scene; one Mesh per non-empty chunk
+  rebuildAround(x, y, z): void; // remesh only the chunks an edit at (x,y,z) touches
 }
 ```
 

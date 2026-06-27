@@ -34,11 +34,7 @@ export class World {
 
   /** True iff (x, y, z) is a valid cell inside the world bounds. */
   inBounds(x: number, y: number, z: number): boolean {
-    return (
-      x >= 0 && x < this.sizeX &&
-      y >= 0 && y < this.sizeY &&
-      z >= 0 && z < this.sizeZ
-    );
+    return x >= 0 && x < this.sizeX && y >= 0 && y < this.sizeY && z >= 0 && z < this.sizeZ;
   }
 
   /**

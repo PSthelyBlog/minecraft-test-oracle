@@ -9,8 +9,7 @@ import type { Vec3 } from "./math";
 function flatWorld(floorTop: number): World {
   const w = new World(16, 24, 16);
   for (let y = 0; y <= floorTop; y++)
-    for (let z = 0; z < w.sizeZ; z++)
-      for (let x = 0; x < w.sizeX; x++) w.set(x, y, z, Block.Stone);
+    for (let z = 0; z < w.sizeZ; z++) for (let x = 0; x < w.sizeX; x++) w.set(x, y, z, Block.Stone);
   return w;
 }
 
@@ -22,9 +21,12 @@ function flatWorld(floorTop: number): World {
  * range — so a mutated bound makes the two disagree.
  */
 function naiveOverlap(world: World, center: Vec3, half: Vec3): boolean {
-  const minX = center[0] - half[0], maxX = center[0] + half[0];
-  const minY = center[1] - half[1], maxY = center[1] + half[1];
-  const minZ = center[2] - half[2], maxZ = center[2] + half[2];
+  const minX = center[0] - half[0],
+    maxX = center[0] + half[0];
+  const minY = center[1] - half[1],
+    maxY = center[1] + half[1];
+  const minZ = center[2] - half[2],
+    maxZ = center[2] + half[2];
   for (let cx = Math.floor(minX) - 1; cx <= Math.ceil(maxX) + 1; cx++) {
     if (!(minX < cx + 1 && maxX > cx)) continue;
     for (let cy = Math.floor(minY) - 1; cy <= Math.ceil(maxY) + 1; cy++) {
@@ -65,7 +67,12 @@ describe("physics oracle", () => {
     fc.assert(
       fc.property(
         fc.array(fc.tuple(cell, cell, cell), { minLength: 1, maxLength: 12 }),
-        c, c, c, h, h, h,
+        c,
+        c,
+        c,
+        h,
+        h,
+        h,
         (solids, cx, cy, cz, hx, hy, hz) => {
           const w = new World(8, 8, 8);
           for (const [x, y, z] of solids) w.set(x, y, z, Block.Stone);
@@ -90,7 +97,9 @@ describe("physics oracle", () => {
         fc.double({ min: 5, max: 10, noNaN: true }), // start x
         fc.double({ min: 6, max: 12, noNaN: true }), // start y (in air)
         fc.double({ min: 5, max: 10, noNaN: true }), // start z
-        small, small, small,
+        small,
+        small,
+        small,
         (floorTop, sx, sy, sz, dx, dy, dz) => {
           const w = flatWorld(floorTop);
           const half: Vec3 = [0.3, 0.9, 0.3];
@@ -147,8 +156,7 @@ describe("physics oracle", () => {
   test("wall collision cancels only the blocked axis", () => {
     const w = new World(16, 16, 16);
     // a vertical wall at x=9, spanning the player's height
-    for (let y = 0; y < w.sizeY; y++)
-      for (let z = 0; z < w.sizeZ; z++) w.set(9, y, z, Block.Stone);
+    for (let y = 0; y < w.sizeY; y++) for (let z = 0; z < w.sizeZ; z++) w.set(9, y, z, Block.Stone);
     const half: Vec3 = [0.3, 0.9, 0.3];
     const start: Vec3 = [8.2, 8, 8]; // box max x = 8.5, wall face at x=9
     // delta x = 0.6 → box max x = 9.1, genuinely penetrating cell x=9 (the wall)
@@ -162,8 +170,7 @@ describe("physics oracle", () => {
   // pushing into a +Z wall cancels Z while X still slides.
   test("Z-wall collision cancels Z only", () => {
     const w = new World(16, 16, 16);
-    for (let y = 0; y < w.sizeY; y++)
-      for (let x = 0; x < w.sizeX; x++) w.set(x, y, 9, Block.Stone); // wall plane at z=9
+    for (let y = 0; y < w.sizeY; y++) for (let x = 0; x < w.sizeX; x++) w.set(x, y, 9, Block.Stone); // wall plane at z=9
     const half: Vec3 = [0.3, 0.9, 0.3];
     const res = moveAndCollide(w, [8, 8, 8.2], half, [0.4, 0, 0.6]); // into wall (+z) and along it (+x)
     expect(res.collided[2]).toBe(true);

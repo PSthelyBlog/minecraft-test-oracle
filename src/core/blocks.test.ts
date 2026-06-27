@@ -35,7 +35,9 @@ describe("blocks oracle", () => {
     expect(new Set(Object.keys(BLOCKS).map(Number))).toEqual(new Set(ids));
     for (const id of ids) {
       const want = FACETS[id];
-      expect({ name: BLOCKS[id].name, solid: BLOCKS[id].solid, opaque: BLOCKS[id].opaque }).toEqual(want);
+      expect({ name: BLOCKS[id].name, solid: BLOCKS[id].solid, opaque: BLOCKS[id].opaque }).toEqual(
+        want,
+      );
       // the accessor helpers agree with the table
       expect(isSolid(id)).toBe(want.solid);
       expect(isOpaque(id)).toBe(want.opaque);

@@ -37,29 +37,71 @@ interface Face {
 }
 
 const FACES: readonly Face[] = [
-  { // +X
-    normal: [1, 0, 0], shade: 0.8,
-    corners: [[1, 1, 0], [1, 1, 1], [1, 0, 1], [1, 0, 0]],
+  {
+    // +X
+    normal: [1, 0, 0],
+    shade: 0.8,
+    corners: [
+      [1, 1, 0],
+      [1, 1, 1],
+      [1, 0, 1],
+      [1, 0, 0],
+    ],
   },
-  { // -X
-    normal: [-1, 0, 0], shade: 0.8,
-    corners: [[0, 1, 1], [0, 1, 0], [0, 0, 0], [0, 0, 1]],
+  {
+    // -X
+    normal: [-1, 0, 0],
+    shade: 0.8,
+    corners: [
+      [0, 1, 1],
+      [0, 1, 0],
+      [0, 0, 0],
+      [0, 0, 1],
+    ],
   },
-  { // +Y (top, brightest)
-    normal: [0, 1, 0], shade: 1.0,
-    corners: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]],
+  {
+    // +Y (top, brightest)
+    normal: [0, 1, 0],
+    shade: 1.0,
+    corners: [
+      [0, 1, 1],
+      [1, 1, 1],
+      [1, 1, 0],
+      [0, 1, 0],
+    ],
   },
-  { // -Y (bottom, darkest)
-    normal: [0, -1, 0], shade: 0.5,
-    corners: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]],
+  {
+    // -Y (bottom, darkest)
+    normal: [0, -1, 0],
+    shade: 0.5,
+    corners: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [1, 0, 1],
+      [0, 0, 1],
+    ],
   },
-  { // +Z
-    normal: [0, 0, 1], shade: 0.9,
-    corners: [[1, 1, 1], [0, 1, 1], [0, 0, 1], [1, 0, 1]],
+  {
+    // +Z
+    normal: [0, 0, 1],
+    shade: 0.9,
+    corners: [
+      [1, 1, 1],
+      [0, 1, 1],
+      [0, 0, 1],
+      [1, 0, 1],
+    ],
   },
-  { // -Z
-    normal: [0, 0, -1], shade: 0.9,
-    corners: [[0, 1, 0], [1, 1, 0], [1, 0, 0], [0, 0, 0]],
+  {
+    // -Z
+    normal: [0, 0, -1],
+    shade: 0.9,
+    corners: [
+      [0, 1, 0],
+      [1, 1, 0],
+      [1, 0, 0],
+      [0, 0, 0],
+    ],
   },
 ];
 
@@ -75,10 +117,19 @@ const FACES: readonly Face[] = [
  * mesher's golden-UV and per-face UV-census oracles.
  */
 const FACE_UV: readonly (readonly [number, number])[] = [
-  [0, 1], [1, 1], [1, 0], [0, 0],
+  [0, 1],
+  [1, 1],
+  [1, 0],
+  [0, 0],
 ];
 
-export function isFaceVisible(world: World, x: number, y: number, z: number, faceIndex: number): boolean {
+export function isFaceVisible(
+  world: World,
+  x: number,
+  y: number,
+  z: number,
+  faceIndex: number,
+): boolean {
   const f = FACES[faceIndex];
   const nx = x + f.normal[0];
   const ny = y + f.normal[1];
@@ -100,8 +151,12 @@ export function isFaceVisible(world: World, x: number, y: number, z: number, fac
  */
 function meshRange(
   world: World,
-  x0: number, y0: number, z0: number,
-  x1: number, y1: number, z1: number,
+  x0: number,
+  y0: number,
+  z0: number,
+  x1: number,
+  y1: number,
+  z1: number,
 ): ChunkMesh {
   const positions: number[] = [];
   const normals: number[] = [];
@@ -136,8 +191,12 @@ function meshRange(
 
           // Two triangles: (0,1,2) and (0,2,3).
           indices.push(
-            baseVertex, baseVertex + 1, baseVertex + 2,
-            baseVertex, baseVertex + 2, baseVertex + 3,
+            baseVertex,
+            baseVertex + 1,
+            baseVertex + 2,
+            baseVertex,
+            baseVertex + 2,
+            baseVertex + 3,
           );
           faceCount++;
         }
@@ -169,7 +228,10 @@ export function buildMesh(world: World): ChunkMesh {
 export const CHUNK_SIZE = 16;
 
 /** Number of chunks along each axis to cover the world (the last one may be partial). */
-export function chunkDims(world: World, chunkSize: number = CHUNK_SIZE): { nx: number; ny: number; nz: number } {
+export function chunkDims(
+  world: World,
+  chunkSize: number = CHUNK_SIZE,
+): { nx: number; ny: number; nz: number } {
   return {
     nx: Math.ceil(world.sizeX / chunkSize),
     ny: Math.ceil(world.sizeY / chunkSize),
@@ -186,7 +248,9 @@ export function chunkDims(world: World, chunkSize: number = CHUNK_SIZE): { nx: n
  */
 export function buildChunkMesh(
   world: World,
-  cx: number, cy: number, cz: number,
+  cx: number,
+  cy: number,
+  cz: number,
   chunkSize: number = CHUNK_SIZE,
 ): ChunkMesh {
   const x0 = cx * chunkSize;
@@ -194,7 +258,9 @@ export function buildChunkMesh(
   const z0 = cz * chunkSize;
   return meshRange(
     world,
-    x0, y0, z0,
+    x0,
+    y0,
+    z0,
     Math.min(x0 + chunkSize, world.sizeX),
     Math.min(y0 + chunkSize, world.sizeY),
     Math.min(z0 + chunkSize, world.sizeZ),
@@ -211,7 +277,9 @@ export function buildChunkMesh(
  */
 export function chunksAffectedByEdit(
   world: World,
-  x: number, y: number, z: number,
+  x: number,
+  y: number,
+  z: number,
   chunkSize: number = CHUNK_SIZE,
 ): [number, number, number][] {
   // The cell itself plus its 6 axis-neighbours. This list is symmetric (each axis
@@ -220,12 +288,20 @@ export function chunksAffectedByEdit(
   // unkillable (documented in docs/TESTING.md), which is fine: only the resulting
   // chunk set matters here, not the visiting order.
   const offsets: readonly [number, number, number][] = [
-    [0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+    [0, 0, 0],
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 1, 0],
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1],
   ];
   const seen = new Set<string>();
   const out: [number, number, number][] = [];
   for (const [dx, dy, dz] of offsets) {
-    const px = x + dx, py = y + dy, pz = z + dz;
+    const px = x + dx,
+      py = y + dy,
+      pz = z + dz;
     if (!world.inBounds(px, py, pz)) continue; // a neighbour outside the world has no chunk
     const cx = Math.floor(px / chunkSize);
     const cy = Math.floor(py / chunkSize);
