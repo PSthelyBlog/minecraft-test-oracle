@@ -7,12 +7,12 @@ flows through it each frame, and the conventions every module agrees on.
 
 The codebase is split into two halves with a hard boundary between them:
 
-| Layer | Location | Depends on | Tested by |
-|-------|----------|------------|-----------|
-| **Pure core** | `src/core`, `src/game` | nothing (no DOM, no Three.js) | unit oracles + mutation testing |
-| **Shell** | `src/render`, `src/main.ts` | Three.js, DOM, WebGL | headless smoke test |
+| Layer         | Location                    | Depends on                    | Tested by                       |
+| ------------- | --------------------------- | ----------------------------- | ------------------------------- |
+| **Pure core** | `src/core`, `src/game`      | nothing (no DOM, no Three.js) | unit oracles + mutation testing |
+| **Shell**     | `src/render`, `src/main.ts` | Three.js, DOM, WebGL          | headless smoke test             |
 
-Every piece of logic that can fail *silently* — coordinate math, ray picking, meshing,
+Every piece of logic that can fail _silently_ — coordinate math, ray picking, meshing,
 terrain, physics, movement — lives in the pure core. It imports nothing from the browser,
 so it runs in Node under Vitest and can be mutation-tested. The shell is deliberately
 dumb: it wires inputs to the core and uploads the core's output to the GPU.
@@ -39,6 +39,7 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
 ## Module responsibilities
 
 ### `src/core`
+
 - **`math.ts`** — `Vec3` (a `readonly [number,number,number]` tuple) and the vector ops.
   The key function is `directionFromYawPitch`, the single definition of where the camera
   looks.
@@ -61,11 +62,13 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   if any is broken.
 
 ### `src/game`
+
 - **`movement.ts`** — `stepMovement`, the pure per-frame player update: input → velocity
   (gravity, jump-gating, fly, diagonal normalization) → delegates collision to
   `moveAndCollide` → returns the next `PlayerState`.
 
 ### `src/render` and `src/main.ts`
+
 - **`render/chunkGeometry.ts`** — uploads a `ChunkMesh`'s typed arrays into a Three.js
   `BufferGeometry`. The only file that touches both the core and Three.js geometry.
 - **`render/chunkedTerrain.ts`** — a `Group` of per-chunk meshes with `rebuildAround(x,y,z)`;
@@ -92,9 +95,9 @@ oracle suite guards.
   - `yaw = 0` looks toward **−Z**; increasing yaw rotates toward **−X** (left).
   - `pitch > 0` looks up (**+Y**), `pitch < 0` looks down. Pitch is clamped to ±(π/2 − ε).
   - The returned direction is always unit length.
-  The Three.js camera uses `rotation.order = "YXZ"` with `rotation.set(pitch, yaw, 0)`,
-  which produces exactly this forward vector — so the crosshair ray and the rendered view
-  always agree.
+    The Three.js camera uses `rotation.order = "YXZ"` with `rotation.set(pitch, yaw, 0)`,
+    which produces exactly this forward vector — so the crosshair ray and the rendered view
+    always agree.
 - **Face directions** (`mesher.ts`) are indexed `0=+X, 1=−X, 2=+Y, 3=−Y, 4=+Z, 5=−Z`.
   Quad corners are wound counter-clockwise as seen from **outside** the block, so faces are
   front-facing under default winding.
@@ -135,7 +138,7 @@ World (Uint8Array)
   tile chosen by `core/atlas.tileIndexFor` (grass top/side/bottom, log end-grain), and
   `render/atlasTexture` paints the `DataTexture`. The per-vertex `colors` now carry only the
   per-face ambient `shade` (top `1.0` … bottom `0.5`), so the look is `texel × shade ×
-  lighting` — the flat-shaded Classic style, now textured.
+lighting` — the flat-shaded Classic style, now textured.
 - Lighting is a `HemisphereLight` + a soft `DirectionalLight`; a `Fog` matching the sky
   colour fades the far edge of the world.
 
@@ -149,21 +152,21 @@ full breakdown and the oracles that pin the seams.
 
 ## Key constants (in `main.ts`)
 
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `SIZE_X, SIZE_Y, SIZE_Z` | `80, 32, 80` | world dimensions (cells) |
-| `SEED` | `20090513` | terrain seed (Classic's first public release date) |
-| `HALF` | `[0.3, 0.9, 0.3]` | player AABB half-extents (0.6 × 1.8 × 0.6) |
-| `EYE` | `0.72` | eye height above the player box centre |
-| `REACH` | `6` | block interaction distance |
-| `TUNING.walk / fly` | `5.2 / 11` | horizontal speed (blocks/s) |
-| `TUNING.gravity` | `−28` | gravitational acceleration (blocks/s²) |
-| `TUNING.jump` | `9` | jump impulse (blocks/s) |
-| `SENS` | `0.0022` | mouse look sensitivity (radians/pixel) |
+| Constant                 | Value             | Meaning                                            |
+| ------------------------ | ----------------- | -------------------------------------------------- |
+| `SIZE_X, SIZE_Y, SIZE_Z` | `80, 32, 80`      | world dimensions (cells)                           |
+| `SEED`                   | `20090513`        | terrain seed (Classic's first public release date) |
+| `HALF`                   | `[0.3, 0.9, 0.3]` | player AABB half-extents (0.6 × 1.8 × 0.6)         |
+| `EYE`                    | `0.72`            | eye height above the player box centre             |
+| `REACH`                  | `6`               | block interaction distance                         |
+| `TUNING.walk / fly`      | `5.2 / 11`        | horizontal speed (blocks/s)                        |
+| `TUNING.gravity`         | `−28`             | gravitational acceleration (blocks/s²)             |
+| `TUNING.jump`            | `9`               | jump impulse (blocks/s)                            |
+| `SENS`                   | `0.0022`          | mouse look sensitivity (radians/pixel)             |
 
 ## Why this split pays off
 
 Because the core is pure, every rule of the game is expressible as a property a test can
 check independently of the implementation — and `npm run mutation` can prove those checks
-actually fail when the code is wrong. The architecture *is* the testing strategy. See
+actually fail when the code is wrong. The architecture _is_ the testing strategy. See
 [TESTING.md](./TESTING.md).

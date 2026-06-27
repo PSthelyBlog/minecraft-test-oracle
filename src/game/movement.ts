@@ -44,18 +44,22 @@ export function stepMovement(
   dt: number,
   t: MovementTuning,
 ): PlayerState {
-  const sin = Math.sin(state.yaw), cos = Math.cos(state.yaw);
+  const sin = Math.sin(state.yaw),
+    cos = Math.cos(state.yaw);
   const fwd: Vec3 = [-sin, 0, -cos];
   const right: Vec3 = [cos, 0, -sin];
 
   let mx = fwd[0] * input.forward + right[0] * input.strafe;
   let mz = fwd[2] * input.forward + right[2] * input.strafe;
   const mlen = Math.hypot(mx, mz);
-  if (mlen > 0) { mx /= mlen; mz /= mlen; } // normalize so diagonals aren't faster
+  if (mlen > 0) {
+    mx /= mlen;
+    mz /= mlen;
+  } // normalize so diagonals aren't faster
 
   const speed = state.flying ? t.fly : t.walk;
-  let vx = mx * speed;
-  let vz = mz * speed;
+  const vx = mx * speed;
+  const vz = mz * speed;
   let vy = state.vel[1];
 
   if (state.flying) {

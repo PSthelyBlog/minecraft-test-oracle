@@ -127,7 +127,9 @@ describe("raycast oracle", () => {
         expectedNormal[ax] = sg; // face that points toward the shooter
         expect(hit!.normal).toEqual(expectedNormal);
         expect(hit!.place).toEqual([
-          bx + expectedNormal[0], by + expectedNormal[1], bz + expectedNormal[2],
+          bx + expectedNormal[0],
+          by + expectedNormal[1],
+          bz + expectedNormal[2],
         ]);
         expect(w.get(hit!.block[0], hit!.block[1], hit!.block[2])).toBe(Block.Stone);
         expect(w.get(hit!.place[0], hit!.place[1], hit!.place[2])).toBe(Block.Air);
@@ -160,7 +162,15 @@ describe("raycast oracle", () => {
     const jitter = fc.double({ min: -0.25, max: 0.25, noNaN: true });
     fc.assert(
       fc.property(
-        coord, coord, coord, off, off, off, jitter, jitter, jitter,
+        coord,
+        coord,
+        coord,
+        off,
+        off,
+        off,
+        jitter,
+        jitter,
+        jitter,
         (bx, by, bz, ox, oy, oz, jx, jy, jz) => {
           // origin offset from the block; require it to be outside the block cell
           fc.pre(Math.abs(ox) > 1.2 || Math.abs(oy) > 1.2 || Math.abs(oz) > 1.2);
@@ -168,7 +178,11 @@ describe("raycast oracle", () => {
           const center: Vec3 = [bx + 0.5, by + 0.5, bz + 0.5];
           const origin: Vec3 = [center[0] + ox, center[1] + oy, center[2] + oz];
           // aim roughly at the block centre, with jitter so we strike faces not edges
-          const dir: Vec3 = [center[0] + jx - origin[0], center[1] + jy - origin[1], center[2] + jz - origin[2]];
+          const dir: Vec3 = [
+            center[0] + jx - origin[0],
+            center[1] + jy - origin[1],
+            center[2] + jz - origin[2],
+          ];
 
           const analytic = slabIntersect(origin, dir, [bx, by, bz]);
           const hit = raycast(w, origin, dir, 64);

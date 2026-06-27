@@ -41,7 +41,9 @@ describe("world oracle", () => {
     fc.assert(
       fc.property(dim, dim, dim, fc.integer({ min: 0, max: 13 }), (sx, sy, sz, id) => {
         const w = new World(sx, sy, sz);
-        const x = sx - 1, y = sy - 1, z = sz - 1; // a corner, most index-sensitive
+        const x = sx - 1,
+          y = sy - 1,
+          z = sz - 1; // a corner, most index-sensitive
         expect(w.set(x, y, z, id)).toBe(true);
         expect(w.get(x, y, z)).toBe(id);
         // neighbours stay Air
@@ -54,7 +56,13 @@ describe("world oracle", () => {
   test("out-of-bounds reads are Air and writes are rejected", () => {
     const w = new World(4, 4, 4);
     const oob: [number, number, number][] = [
-      [-1, 0, 0], [0, -1, 0], [0, 0, -1], [4, 0, 0], [0, 4, 0], [0, 0, 4], [99, 99, 99],
+      [-1, 0, 0],
+      [0, -1, 0],
+      [0, 0, -1],
+      [4, 0, 0],
+      [0, 4, 0],
+      [0, 0, 4],
+      [99, 99, 99],
     ];
     for (const [x, y, z] of oob) {
       expect(w.inBounds(x, y, z)).toBe(false);

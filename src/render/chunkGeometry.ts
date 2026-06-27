@@ -5,11 +5,7 @@
  * free of Three.js.
  */
 
-import {
-  BufferGeometry,
-  Float32BufferAttribute,
-  Uint32BufferAttribute,
-} from "three";
+import { BufferGeometry, Float32BufferAttribute, Uint32BufferAttribute } from "three";
 import type { World } from "../core/world";
 import { buildMesh, type ChunkMesh } from "../core/mesher";
 

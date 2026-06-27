@@ -44,9 +44,5 @@ export function normalize(a: Vec3): Vec3 {
  */
 export function directionFromYawPitch(yaw: number, pitch: number): Vec3 {
   const cosPitch = Math.cos(pitch);
-  return [
-    -Math.sin(yaw) * cosPitch,
-    Math.sin(pitch),
-    -Math.cos(yaw) * cosPitch,
-  ];
+  return [-Math.sin(yaw) * cosPitch, Math.sin(pitch), -Math.cos(yaw) * cosPitch];
 }

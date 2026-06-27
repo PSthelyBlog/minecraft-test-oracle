@@ -22,15 +22,27 @@ describe("atlasTexture oracle", () => {
       const col = tile % ATLAS_COLS;
       const row = Math.floor(tile / ATLAS_COLS);
       // Average the cell interior (skip the 1px bevel border).
-      let r = 0, g = 0, b = 0, a = 0, n = 0;
+      let r = 0,
+        g = 0,
+        b = 0,
+        a = 0,
+        n = 0;
       for (let ty = 1; ty < tilePx - 1; ty++) {
         for (let tx = 1; tx < tilePx - 1; tx++) {
-          const px = col * tilePx + tx, py = row * tilePx + ty;
+          const px = col * tilePx + tx,
+            py = row * tilePx + ty;
           const i = (py * W + px) * 4;
-          r += data[i]; g += data[i + 1]; b += data[i + 2]; a += data[i + 3]; n++;
+          r += data[i];
+          g += data[i + 1];
+          b += data[i + 2];
+          a += data[i + 3];
+          n++;
         }
       }
-      r /= n; g /= n; b /= n; a /= n;
+      r /= n;
+      g /= n;
+      b /= n;
+      a /= n;
 
       const [cr, cg, cb] = TILE_COLOR[tile as TileIndex];
       // The grain factor averages ~0.93; allow a generous band per channel.

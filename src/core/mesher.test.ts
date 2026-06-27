@@ -21,7 +21,12 @@ import { tileIndexFor, uvRectForTile } from "./atlas";
  */
 function expectedFaceCount(w: World): number {
   const dirs = [
-    [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 1, 0],
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1],
   ];
   let faces = 0;
   for (let y = 0; y < w.sizeY; y++)
@@ -70,9 +75,12 @@ describe("mesher oracle", () => {
   // FACES order is 0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z.
   test("a face is culled by the neighbour across it, not the opposite neighbour", () => {
     const cases: { face: number; nb: [number, number, number] }[] = [
-      { face: 0, nb: [1, 0, 0] }, { face: 1, nb: [-1, 0, 0] },
-      { face: 2, nb: [0, 1, 0] }, { face: 3, nb: [0, -1, 0] },
-      { face: 4, nb: [0, 0, 1] }, { face: 5, nb: [0, 0, -1] },
+      { face: 0, nb: [1, 0, 0] },
+      { face: 1, nb: [-1, 0, 0] },
+      { face: 2, nb: [0, 1, 0] },
+      { face: 3, nb: [0, -1, 0] },
+      { face: 4, nb: [0, 0, 1] },
+      { face: 5, nb: [0, 0, -1] },
     ];
     for (const { face, nb } of cases) {
       const w = new World(5, 5, 5);
@@ -187,7 +195,14 @@ describe("mesher oracle", () => {
     const r = uvRectForTile(tileIndexFor(Block.Stone, 0)); // face 0 = +X
     const base = fx * 4 * 2;
     expect(Array.from(m.uvs.slice(base, base + 8))).toEqual([
-      r.u0, r.v1, r.u1, r.v1, r.u1, r.v0, r.u0, r.v0,
+      r.u0,
+      r.v1,
+      r.u1,
+      r.v1,
+      r.u1,
+      r.v0,
+      r.u0,
+      r.v0,
     ]);
   });
 
@@ -197,7 +212,13 @@ describe("mesher oracle", () => {
   // tile, across a mixed world (grass/log have per-face tiles; this exercises them).
   test("census: every face's UVs equal its (block,face) tile rect", () => {
     const id = fc.constantFrom(
-      Block.Air, Block.Stone, Block.Grass, Block.Log, Block.Glass, Block.Leaves, Block.Sand,
+      Block.Air,
+      Block.Stone,
+      Block.Grass,
+      Block.Log,
+      Block.Glass,
+      Block.Leaves,
+      Block.Sand,
     );
     fc.assert(
       fc.property(fc.array(id, { minLength: 27, maxLength: 27 }), (cells) => {
@@ -207,8 +228,11 @@ describe("mesher oracle", () => {
         // Independently recover, per face, which block+face emitted it: the face's
         // single non-air cell is the block at floor(position) on the inner side.
         for (let f = 0; f < m.faceCount; f++) {
-          const p = f * 4 * 3, n = f * 4 * 3;
-          const nx = m.normals[n], ny = m.normals[n + 1], nz = m.normals[n + 2];
+          const p = f * 4 * 3,
+            n = f * 4 * 3;
+          const nx = m.normals[n],
+            ny = m.normals[n + 1],
+            nz = m.normals[n + 2];
           // map normal → faceIndex (0=+X,1=−X,2=+Y,3=−Y,4=+Z,5=−Z)
           const fi = nx === 1 ? 0 : nx === -1 ? 1 : ny === 1 ? 2 : ny === -1 ? 3 : nz === 1 ? 4 : 5;
           // the owning cell = a corner minus the half-step toward the outward normal,
@@ -218,8 +242,12 @@ describe("mesher oracle", () => {
           const cz = Math.floor((m.positions[p + 2] + m.positions[p + 8]) / 2 - nz * 0.5);
           const block = w.get(cx, cy, cz);
           const r = uvRectForTile(tileIndexFor(block, fi));
-          const us: number[] = [], vs: number[] = [];
-          for (let k = 0; k < 4; k++) { us.push(m.uvs[f * 8 + k * 2]); vs.push(m.uvs[f * 8 + k * 2 + 1]); }
+          const us: number[] = [],
+            vs: number[] = [];
+          for (let k = 0; k < 4; k++) {
+            us.push(m.uvs[f * 8 + k * 2]);
+            vs.push(m.uvs[f * 8 + k * 2 + 1]);
+          }
           for (const u of us) expect(u === r.u0 || u === r.u1).toBe(true);
           for (const v of vs) expect(v === r.v0 || v === r.v1).toBe(true);
           // all four distinct corners of the tile are present (a real quad, not collapsed)
@@ -241,7 +269,8 @@ describe("mesher oracle", () => {
       return m.colors[o] + m.colors[o + 1] + m.colors[o + 2];
     };
     // find the +Y (top) face and -Y (bottom) face by their normals
-    let top = -1, bottom = -1;
+    let top = -1,
+      bottom = -1;
     for (let f = 0; f < m.faceCount; f++) {
       const ny = m.normals[f * 4 * 3 + 1];
       if (ny === 1) top = f;
@@ -258,8 +287,7 @@ describe("mesher oracle", () => {
     const n = 4;
     const w = new World(n + 2, n + 2, n + 2);
     for (let y = 1; y <= n; y++)
-      for (let z = 1; z <= n; z++)
-        for (let x = 1; x <= n; x++) w.set(x, y, z, Block.Stone);
+      for (let z = 1; z <= n; z++) for (let x = 1; x <= n; x++) w.set(x, y, z, Block.Stone);
     expect(buildMesh(w).faceCount).toBe(6 * n * n);
   });
 });
@@ -288,8 +316,7 @@ function allChunkMeshes(w: World, chunkSize: number): ChunkMesh[] {
   const meshes: ChunkMesh[] = [];
   for (let cy = 0; cy < ny; cy++)
     for (let cz = 0; cz < nz; cz++)
-      for (let cx = 0; cx < nx; cx++)
-        meshes.push(buildChunkMesh(w, cx, cy, cz, chunkSize));
+      for (let cx = 0; cx < nx; cx++) meshes.push(buildChunkMesh(w, cx, cy, cz, chunkSize));
   return meshes;
 }
 
@@ -321,9 +348,13 @@ describe("chunked meshing oracle", () => {
         fc.integer({ min: 1, max: 16 }),
         (sx, sy, sz, cs) => {
           const { nx, ny, nz } = chunkDims(new World(sx, sy, sz), cs);
-          for (const [n, size] of [[nx, sx], [ny, sy], [nz, sz]] as const) {
+          for (const [n, size] of [
+            [nx, sx],
+            [ny, sy],
+            [nz, sz],
+          ] as const) {
             expect(n * cs).toBeGreaterThanOrEqual(size); // every cell is covered
-            expect((n - 1) * cs).toBeLessThan(size);     // the last chunk holds ≥1 cell
+            expect((n - 1) * cs).toBeLessThan(size); // the last chunk holds ≥1 cell
           }
         },
       ),
@@ -338,7 +369,7 @@ describe("chunked meshing oracle", () => {
     fc.assert(
       fc.property(
         fc.array(id, { minLength: 125, maxLength: 125 }), // 5×5×5
-        fc.constantFrom(1, 2, 3, 4, 5, 8),                // chunk sizes incl. non-divisors of 5
+        fc.constantFrom(1, 2, 3, 4, 5, 8), // chunk sizes incl. non-divisors of 5
         (cells, chunkSize) => {
           const w = new World(5, 5, 5);
           cells.forEach((b, i) => (w.data[i] = b));
@@ -380,7 +411,9 @@ describe("chunked meshing oracle", () => {
     // (1,1,1) is interior to chunk (0,0,0): all 6 neighbours stay in it.
     expect(chunksAffectedByEdit(w, 1, 1, 1, 4)).toEqual([[0, 0, 0]]);
     // (3,1,1) is the max-X cell of chunk (0,0,0); its +X neighbour (4,1,1) is in (1,0,0).
-    const at = chunksAffectedByEdit(w, 3, 1, 1, 4).map((c) => c.join(",")).sort();
+    const at = chunksAffectedByEdit(w, 3, 1, 1, 4)
+      .map((c) => c.join(","))
+      .sort();
     expect(at).toEqual(["0,0,0", "1,0,0"]);
   });
 
@@ -394,13 +427,15 @@ describe("chunked meshing oracle", () => {
     fc.assert(
       fc.property(
         fc.array(id, { minLength: 125, maxLength: 125 }),
-        fc.nat(124),                                   // cell to edit (flat index into 5×5×5)
+        fc.nat(124), // cell to edit (flat index into 5×5×5)
         fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves),
         fc.constantFrom(2, 3, 4),
         (cells, flat, newId, chunkSize) => {
           const w = new World(5, 5, 5);
           cells.forEach((b, i) => (w.data[i] = b));
-          const x = flat % 5, z = Math.floor(flat / 5) % 5, y = Math.floor(flat / 25);
+          const x = flat % 5,
+            z = Math.floor(flat / 5) % 5,
+            y = Math.floor(flat / 25);
 
           const sig = () => allChunkMeshes(w, chunkSize).map((m) => faceKeys(m).sort().join("|"));
           const before = sig();
@@ -411,11 +446,15 @@ describe("chunked meshing oracle", () => {
           const changed = new Set<string>();
           for (let i = 0; i < before.length; i++) {
             if (before[i] !== after[i]) {
-              const cx = i % nx, cz = Math.floor(i / nx) % nz, cy = Math.floor(i / (nx * nz));
+              const cx = i % nx,
+                cz = Math.floor(i / nx) % nz,
+                cy = Math.floor(i / (nx * nz));
               changed.add(`${cx},${cy},${cz}`);
             }
           }
-          const reported = new Set(chunksAffectedByEdit(w, x, y, z, chunkSize).map((c) => c.join(",")));
+          const reported = new Set(
+            chunksAffectedByEdit(w, x, y, z, chunkSize).map((c) => c.join(",")),
+          );
           for (const c of changed) expect(reported.has(c)).toBe(true);
         },
       ),

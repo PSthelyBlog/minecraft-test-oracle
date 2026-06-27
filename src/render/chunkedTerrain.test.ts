@@ -66,10 +66,10 @@ describe("ChunkedTerrain oracle", () => {
     const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves);
     fc.assert(
       fc.property(
-        fc.array(id, { minLength: 125, maxLength: 125 }),                    // initial 5×5×5 fill
+        fc.array(id, { minLength: 125, maxLength: 125 }), // initial 5×5×5 fill
         fc.array(
           fc.record({ flat: fc.nat(124), id }),
-          { minLength: 1, maxLength: 12 },                                   // a batch of edits
+          { minLength: 1, maxLength: 12 }, // a batch of edits
         ),
         fc.constantFrom(2, 3, 4, 16),
         (cells, edits, chunkSize) => {
@@ -78,7 +78,9 @@ describe("ChunkedTerrain oracle", () => {
           const terrain = new ChunkedTerrain(w, MAT, chunkSize);
 
           for (const { flat, id: newId } of edits) {
-            const x = flat % 5, z = Math.floor(flat / 5) % 5, y = Math.floor(flat / 25);
+            const x = flat % 5,
+              z = Math.floor(flat / 5) % 5,
+              y = Math.floor(flat / 25);
             w.set(x, y, z, newId);
             terrain.rebuildAround(x, y, z);
           }

@@ -22,7 +22,9 @@ const page = await browser.newPage({ viewport: { width: 1100, height: 700 } });
 
 const errors = [];
 const ignore = (t) => /favicon|404 \(Not Found\)/i.test(t); // missing favicon is harmless
-page.on("console", (m) => { if (m.type() === "error" && !ignore(m.text())) errors.push(m.text()); });
+page.on("console", (m) => {
+  if (m.type() === "error" && !ignore(m.text())) errors.push(m.text());
+});
 page.on("pageerror", (e) => errors.push("PAGEERROR: " + e.message));
 
 await page.goto(URL, { waitUntil: "networkidle" });
@@ -30,7 +32,10 @@ await page.waitForTimeout(1500); // let a few frames render
 
 // HUD text proves: boot self-check passed (no throw), terrain generated, the frame
 // loop runs, and physics resolved the player onto the ground.
-const hud = await page.locator("#hud").innerText().catch(() => "");
+const hud = await page
+  .locator("#hud")
+  .innerText()
+  .catch(() => "");
 const hotbarSlots = await page.locator("#hotbar .slot").count();
 const hasWebGL = await page.evaluate(() => {
   const c = document.getElementById("app");
@@ -65,39 +70,54 @@ await page.evaluate(() => {
   }
 });
 const canvasPng = await page.locator("#app").screenshot();
-const render = await page.evaluate(async ({ dataUrl, sky }) => {
-  const img = new Image();
-  img.src = dataUrl;
-  await img.decode();
-  const cv = document.createElement("canvas");
-  cv.width = img.width; cv.height = img.height;
-  const ctx = cv.getContext("2d");
-  ctx.drawImage(img, 0, 0);
-  const W = img.width, H = img.height;
-  const px = ctx.getImageData(0, 0, W, H).data;
-  const at = (x, y) => { const i = (y * W + x) * 4; return [px[i], px[i + 1], px[i + 2]]; };
-  const dist = (c) => Math.abs(c[0] - sky[0]) + Math.abs(c[1] - sky[1]) + Math.abs(c[2] - sky[2]);
-  const lum = (c) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+const render = await page.evaluate(
+  async ({ dataUrl, sky }) => {
+    const img = new Image();
+    img.src = dataUrl;
+    await img.decode();
+    const cv = document.createElement("canvas");
+    cv.width = img.width;
+    cv.height = img.height;
+    const ctx = cv.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    const W = img.width,
+      H = img.height;
+    const px = ctx.getImageData(0, 0, W, H).data;
+    const at = (x, y) => {
+      const i = (y * W + x) * 4;
+      return [px[i], px[i + 1], px[i + 2]];
+    };
+    const dist = (c) => Math.abs(c[0] - sky[0]) + Math.abs(c[1] - sky[1]) + Math.abs(c[2] - sky[2]);
+    const lum = (c) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
 
-  const seen = new Set();
-  let nonSky = 0, total = 0, sum = 0, sum2 = 0;
-  for (let y = 0; y < H; y += 3) for (let x = 0; x < W; x += 3) {
-    const c = at(x, y);
-    total++;
-    if (dist(c) > 60) nonSky++;          // clearly not the sky clear-colour → drawn geometry
-    const L = lum(c); sum += L; sum2 += L * L;
-    seen.add((c[0] >> 4) + "," + (c[1] >> 4) + "," + (c[2] >> 4));
-  }
-  const mean = sum / total;
-  const lumStd = Math.sqrt(Math.max(0, sum2 / total - mean * mean));
-  return {
-    W, H,
-    nonSkyFraction: +(nonSky / total).toFixed(3),
-    lumMean: +mean.toFixed(1),
-    lumStd: +lumStd.toFixed(1),
-    distinctColours: seen.size,
-  };
-}, { dataUrl: "data:image/png;base64," + canvasPng.toString("base64"), sky: SKY });
+    const seen = new Set();
+    let nonSky = 0,
+      total = 0,
+      sum = 0,
+      sum2 = 0;
+    for (let y = 0; y < H; y += 3)
+      for (let x = 0; x < W; x += 3) {
+        const c = at(x, y);
+        total++;
+        if (dist(c) > 60) nonSky++; // clearly not the sky clear-colour → drawn geometry
+        const L = lum(c);
+        sum += L;
+        sum2 += L * L;
+        seen.add((c[0] >> 4) + "," + (c[1] >> 4) + "," + (c[2] >> 4));
+      }
+    const mean = sum / total;
+    const lumStd = Math.sqrt(Math.max(0, sum2 / total - mean * mean));
+    return {
+      W,
+      H,
+      nonSkyFraction: +(nonSky / total).toFixed(3),
+      lumMean: +mean.toFixed(1),
+      lumStd: +lumStd.toFixed(1),
+      distinctColours: seen.size,
+    };
+  },
+  { dataUrl: "data:image/png;base64," + canvasPng.toString("base64"), sky: SKY },
+);
 
 // Keep saving a full-page screenshot for the CI artifact / eyeball.
 await page.screenshot({ path: "scripts/screenshot.png" });
@@ -114,9 +134,9 @@ const checks = {
   onGround: /ground/.test(hud),
   hotbar: hotbarSlots === 10,
   webgl: hasWebGL,
-  terrainDrawn: render.nonSkyFraction >= 0.5,  // world fills the frame; ~0 ⇒ only sky drew (no geometry)
-  hasStructure: render.lumStd >= 6,            // lit 3D scene varies; a flat/blank canvas has std ~0
-  notBlank: render.distinctColours >= 8,       // a single-colour canvas has ~1
+  terrainDrawn: render.nonSkyFraction >= 0.5, // world fills the frame; ~0 ⇒ only sky drew (no geometry)
+  hasStructure: render.lumStd >= 6, // lit 3D scene varies; a flat/blank canvas has std ~0
+  notBlank: render.distinctColours >= 8, // a single-colour canvas has ~1
 };
 console.log("CHECKS:", JSON.stringify(checks));
 const pass = Object.values(checks).every(Boolean);
