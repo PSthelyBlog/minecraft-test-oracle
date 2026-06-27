@@ -23,8 +23,8 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
 │   │                                                            │
 │   ├── input  ──► game/movement.stepMovement ──► core/physics   │
 │   ├── mouse  ──► core/math.directionFromYawPitch ─► core/raycast│
-│   ├── edits  ──► core/world.set ──► render/chunkGeometry        │
-│   └── render/chunkGeometry ──► core/mesher.buildMesh ──► GPU    │
+│   ├── edits  ──► core/world.set ──► render/chunkedTerrain       │
+│   └── chunkedTerrain ──► core/mesher.buildChunkMesh ──► GPU     │
 └───────────────────────────────────────────────────────────────┘
             ▲                                   ▲
             │ pure, dependency-free             │
@@ -48,8 +48,9 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   coordinate↔index mapping. **The single source of truth for the coordinate convention.**
 - **`raycast.ts`** — DDA voxel traversal (`raycast`) for "what block is the player looking
   at?". Returns the hit block, the entry face normal, and the adjacent empty cell.
-- **`mesher.ts`** — `buildMesh` turns a `World` into geometry, emitting only the faces a
-  neighbour doesn't hide (face culling).
+- **`mesher.ts`** — turns a `World` into geometry, emitting only the faces a neighbour
+  doesn't hide (face culling). `buildMesh` does the whole world; `buildChunkMesh` does one
+  fixed chunk (culling across borders) so edits remesh just the affected chunks.
 - **`terrain.ts`** — deterministic seeded terrain (`generateTerrain`), value-noise
   heightmap, vertical layering.
 - **`physics.ts`** — AABB-vs-voxel collision: `boxIntersectsSolid` (overlap test) and
@@ -65,6 +66,8 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
 ### `src/render` and `src/main.ts`
 - **`render/chunkGeometry.ts`** — uploads a `ChunkMesh`'s typed arrays into a Three.js
   `BufferGeometry`. The only file that touches both the core and Three.js geometry.
+- **`render/chunkedTerrain.ts`** — a `Group` of per-chunk meshes with `rebuildAround(x,y,z)`;
+  thin wiring over the core's `buildChunkMesh` / `chunksAffectedByEdit`.
 - **`main.ts`** — scene/camera/lights, the start overlay + pointer lock, keyboard/mouse
   input, the hotbar + HUD, block break/place, and the `requestAnimationFrame` loop.
 
@@ -115,11 +118,14 @@ locked). Clicks call break/place.
 
 ```
 World (Uint8Array)
-  └─ buildMesh()            face culling → ChunkMesh { positions, normals, colors, indices, faceCount }
-       └─ buildChunkGeometry()   typed arrays → THREE.BufferGeometry
-            └─ new Mesh(geo, MeshLambertMaterial { vertexColors: true })
+  └─ buildChunkMesh(cx,cy,cz)   per-chunk face culling → ChunkMesh { positions, normals, colors, indices, faceCount }
+       └─ geometryFromMesh()        typed arrays → THREE.BufferGeometry
+            └─ ChunkedTerrain.group  one Mesh per non-empty chunk (MeshLambertMaterial { vertexColors: true })
 ```
 
+- The world is meshed as a grid of fixed **chunks** (`CHUNK_SIZE = 16`). `buildChunkMesh`
+  culls each chunk against the **full** world, so seams are correct; the chunks reassemble
+  into the exact whole-world mesh (`buildMesh` is the whole-world case of the same code).
 - Colors are **per-vertex** (`blocks.color` × a per-face ambient `shade`: top brightest at
   `1.0`, bottom darkest at `0.5`). This gives the flat-shaded Classic look with no textures.
 - Lighting is a `HemisphereLight` + a soft `DirectionalLight`; a `Fog` matching the sky
@@ -127,11 +133,11 @@ World (Uint8Array)
 
 ### Mesh rebuilds on edit
 
-Breaking or placing a block mutates the `World` and calls `rebuildTerrain()`, which rebuilds
-the **entire** world mesh and swaps the geometry (disposing the old one). For the default
-`80 × 32 × 80` world this is a few milliseconds — fine for click-driven edits. See
-[EXTENDING.md](./EXTENDING.md#performance-and-chunking) for how to make this incremental if
-you grow the world substantially.
+Breaking or placing a block mutates the `World` and calls `terrain.rebuildAround(x, y, z)`,
+which remeshes only the chunks `chunksAffectedByEdit` reports — the edited cell's chunk plus
+any neighbour chunk across a border — instead of the whole world. The old per-chunk geometry
+is disposed and replaced. See [EXTENDING.md](./EXTENDING.md#performance-and-chunking) for the
+full breakdown and the oracles that pin the seams.
 
 ## Key constants (in `main.ts`)
 

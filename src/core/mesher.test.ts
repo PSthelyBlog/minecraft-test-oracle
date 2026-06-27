@@ -2,7 +2,14 @@ import { describe, test, expect } from "vitest";
 import fc from "fast-check";
 import { World } from "./world";
 import { Block, isOpaque } from "./blocks";
-import { buildMesh, isFaceVisible } from "./mesher";
+import {
+  buildMesh,
+  isFaceVisible,
+  buildChunkMesh,
+  chunkDims,
+  chunksAffectedByEdit,
+  type ChunkMesh,
+} from "./mesher";
 
 /**
  * INDEPENDENT oracle for the visible-face count.
@@ -194,5 +201,165 @@ describe("mesher oracle", () => {
       for (let z = 1; z <= n; z++)
         for (let x = 1; x <= n; x++) w.set(x, y, z, Block.Stone);
     expect(buildMesh(w).faceCount).toBe(6 * n * n);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Chunked meshing: per-chunk meshes must reassemble the whole-world mesh with no
+// seams — the same faces, no more (border faces double-emitted) and no fewer
+// (border faces dropped because a cross-chunk neighbour was read as Air).
+// ---------------------------------------------------------------------------
+
+/** A canonical key per emitted face: its 4 world-space corners, in winding order. */
+function faceKeys(m: ChunkMesh): string[] {
+  const keys: string[] = [];
+  for (let f = 0; f < m.faceCount; f++) {
+    const base = f * 4 * 3;
+    const parts: number[] = [];
+    for (let k = 0; k < 12; k++) parts.push(m.positions[base + k]);
+    keys.push(parts.join(","));
+  }
+  return keys;
+}
+
+/** Every chunk's mesh, unioned. */
+function allChunkMeshes(w: World, chunkSize: number): ChunkMesh[] {
+  const { nx, ny, nz } = chunkDims(w, chunkSize);
+  const meshes: ChunkMesh[] = [];
+  for (let cy = 0; cy < ny; cy++)
+    for (let cz = 0; cz < nz; cz++)
+      for (let cx = 0; cx < nx; cx++)
+        meshes.push(buildChunkMesh(w, cx, cy, cz, chunkSize));
+  return meshes;
+}
+
+describe("chunked meshing oracle", () => {
+  // GOLDEN SEAM: two opaque blocks straddling a chunk border (chunkSize 2 puts
+  // x=1 in chunk 0 and x=2 in chunk 1). Their touching faces must STILL be culled
+  // across the seam → 10 faces total, exactly as the whole-world mesh. An impl
+  // that read the cross-chunk neighbour as Air would emit both → 12.
+  test("golden: a block pair straddling a chunk border still culls the seam (10, not 12)", () => {
+    const w = new World(4, 4, 4);
+    w.set(1, 2, 2, Block.Stone); // chunk x=0
+    w.set(2, 2, 2, Block.Stone); // chunk x=1, across the size-2 seam
+    expect(buildMesh(w).faceCount).toBe(10);
+    const sum = allChunkMeshes(w, 2).reduce((a, m) => a + m.faceCount, 0);
+    expect(sum).toBe(10);
+  });
+
+  // TILING: chunkDims must be the MINIMAL cover — enough chunks that every cell
+  // falls in one, with no wholly-empty trailing chunk. Both inequalities together
+  // hold only for n = ceil(size/chunkSize), so a `/`→`*` or ceil→floor mutant
+  // (which the face-count census can't see, since extra chunks are just empty)
+  // is caught here. Stated as independent bounds, not by restating `ceil`.
+  test("chunkDims tiles each axis minimally (covers all cells, no empty tail chunk)", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 40 }),
+        fc.integer({ min: 1, max: 40 }),
+        fc.integer({ min: 1, max: 40 }),
+        fc.integer({ min: 1, max: 16 }),
+        (sx, sy, sz, cs) => {
+          const { nx, ny, nz } = chunkDims(new World(sx, sy, sz), cs);
+          for (const [n, size] of [[nx, sx], [ny, sy], [nz, sz]] as const) {
+            expect(n * cs).toBeGreaterThanOrEqual(size); // every cell is covered
+            expect((n - 1) * cs).toBeLessThan(size);     // the last chunk holds ≥1 cell
+          }
+        },
+      ),
+    );
+  });
+
+  // CENSUS (the headline invariant): the per-chunk face counts sum to the
+  // whole-world face count, for any world and any chunk size. A seam bug, a
+  // missed cell at a partial last chunk, or overlapping chunk bounds all break it.
+  test("census: Σ per-chunk faceCount == whole-world faceCount", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves, Block.Grass);
+    fc.assert(
+      fc.property(
+        fc.array(id, { minLength: 125, maxLength: 125 }), // 5×5×5
+        fc.constantFrom(1, 2, 3, 4, 5, 8),                // chunk sizes incl. non-divisors of 5
+        (cells, chunkSize) => {
+          const w = new World(5, 5, 5);
+          cells.forEach((b, i) => (w.data[i] = b));
+          const whole = buildMesh(w).faceCount;
+          const sum = allChunkMeshes(w, chunkSize).reduce((a, m) => a + m.faceCount, 0);
+          expect(sum).toBe(whole);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  // SEAM MULTISET (stronger than the count): the SET of faces produced by the
+  // chunks equals the set the whole-world mesh produces — exactly. This catches a
+  // border face that is dropped in one chunk and spuriously emitted in another,
+  // which a count census alone would not notice.
+  test("seam: the union of chunk faces equals the whole-world faces exactly", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves);
+    fc.assert(
+      fc.property(
+        fc.array(id, { minLength: 125, maxLength: 125 }),
+        fc.constantFrom(2, 3, 4),
+        (cells, chunkSize) => {
+          const w = new World(5, 5, 5);
+          cells.forEach((b, i) => (w.data[i] = b));
+          const whole = faceKeys(buildMesh(w)).sort();
+          const chunked = allChunkMeshes(w, chunkSize).flatMap(faceKeys).sort();
+          expect(chunked).toEqual(whole);
+        },
+      ),
+      { numRuns: 150 },
+    );
+  });
+
+  // GOLDEN: which chunks an edit touches. Interior edits hit exactly one chunk;
+  // an edit on a chunk's max-X face also hits the chunk across that border.
+  test("golden: edit impact is 1 chunk in the interior, 2 across a border", () => {
+    const w = new World(8, 8, 8); // chunkSize 4 → 2×2×2 chunks
+    // (1,1,1) is interior to chunk (0,0,0): all 6 neighbours stay in it.
+    expect(chunksAffectedByEdit(w, 1, 1, 1, 4)).toEqual([[0, 0, 0]]);
+    // (3,1,1) is the max-X cell of chunk (0,0,0); its +X neighbour (4,1,1) is in (1,0,0).
+    const at = chunksAffectedByEdit(w, 3, 1, 1, 4).map((c) => c.join(",")).sort();
+    expect(at).toEqual(["0,0,0", "1,0,0"]);
+  });
+
+  // DIFFERENTIAL: chunksAffectedByEdit must not under-report. After an arbitrary
+  // edit, EVERY chunk whose mesh actually changed has to be in the returned set —
+  // otherwise the renderer would skip rebuilding it and leave a stale seam. We
+  // verify this by re-meshing every chunk before and after the edit and checking
+  // the changed set is covered.
+  test("differential: every chunk whose mesh changes is reported by chunksAffectedByEdit", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves);
+    fc.assert(
+      fc.property(
+        fc.array(id, { minLength: 125, maxLength: 125 }),
+        fc.nat(124),                                   // cell to edit (flat index into 5×5×5)
+        fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves),
+        fc.constantFrom(2, 3, 4),
+        (cells, flat, newId, chunkSize) => {
+          const w = new World(5, 5, 5);
+          cells.forEach((b, i) => (w.data[i] = b));
+          const x = flat % 5, z = Math.floor(flat / 5) % 5, y = Math.floor(flat / 25);
+
+          const sig = () => allChunkMeshes(w, chunkSize).map((m) => faceKeys(m).sort().join("|"));
+          const before = sig();
+          w.set(x, y, z, newId);
+          const after = sig();
+
+          const { nx, nz } = chunkDims(w, chunkSize);
+          const changed = new Set<string>();
+          for (let i = 0; i < before.length; i++) {
+            if (before[i] !== after[i]) {
+              const cx = i % nx, cz = Math.floor(i / nx) % nz, cy = Math.floor(i / (nx * nz));
+              changed.add(`${cx},${cy},${cz}`);
+            }
+          }
+          const reported = new Set(chunksAffectedByEdit(w, x, y, z, chunkSize).map((c) => c.join(",")));
+          for (const c of changed) expect(reported.has(c)).toBe(true);
+        },
+      ),
+      { numRuns: 200 },
+    );
   });
 });

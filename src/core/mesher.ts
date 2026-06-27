@@ -74,16 +74,32 @@ export function isFaceVisible(world: World, x: number, y: number, z: number, fac
   return !isOpaque(world.get(nx, ny, nz));
 }
 
-export function buildMesh(world: World): ChunkMesh {
+/**
+ * Mesh the cells in the half-open box [x0,x1) × [y0,y1) × [z0,z1).
+ *
+ * Crucially, face culling still reads neighbours from the *full* `world` (via
+ * `world.get`, which returns Air out of bounds) — so a face on the box's border
+ * is culled by the real block in the adjacent box, not treated as exposed. This
+ * is what makes per-chunk meshing seamless: `buildMesh` is just the whole-world
+ * box, and `buildChunkMesh` is one chunk's box, sharing this exact emission path.
+ *
+ * Vertices are emitted in WORLD coordinates, so every range's geometry sits in
+ * the same space and can be uploaded at the origin.
+ */
+function meshRange(
+  world: World,
+  x0: number, y0: number, z0: number,
+  x1: number, y1: number, z1: number,
+): ChunkMesh {
   const positions: number[] = [];
   const normals: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
   let faceCount = 0;
 
-  for (let y = 0; y < world.sizeY; y++) {
-    for (let z = 0; z < world.sizeZ; z++) {
-      for (let x = 0; x < world.sizeX; x++) {
+  for (let y = y0; y < y1; y++) {
+    for (let z = z0; z < z1; z++) {
+      for (let x = x0; x < x1; x++) {
         const id = world.get(x, y, z);
         if (id === Block.Air) continue;
         const def = blockDef(id);
@@ -117,4 +133,87 @@ export function buildMesh(world: World): ChunkMesh {
     indices: new Uint32Array(indices),
     faceCount,
   };
+}
+
+/** Mesh the whole world in one geometry (fine up to ~100³; larger worlds chunk). */
+export function buildMesh(world: World): ChunkMesh {
+  return meshRange(world, 0, 0, 0, world.sizeX, world.sizeY, world.sizeZ);
+}
+
+// ---------------------------------------------------------------------------
+// Chunked meshing — split a large world into fixed cubes so an edit rebuilds
+// only the affected chunk(s) instead of the entire world.
+// ---------------------------------------------------------------------------
+
+/** Edge length of a chunk, in cells. */
+export const CHUNK_SIZE = 16;
+
+/** Number of chunks along each axis to cover the world (the last one may be partial). */
+export function chunkDims(world: World, chunkSize: number = CHUNK_SIZE): { nx: number; ny: number; nz: number } {
+  return {
+    nx: Math.ceil(world.sizeX / chunkSize),
+    ny: Math.ceil(world.sizeY / chunkSize),
+    nz: Math.ceil(world.sizeZ / chunkSize),
+  };
+}
+
+/**
+ * Mesh a single chunk at chunk-coordinate (cx, cy, cz). Iterates only that
+ * chunk's cells (clamped to the world's edge for the last, partial chunk) but
+ * culls against the full world, so chunk seams are face-culled correctly.
+ * The chunks tile the world exactly, so summing every chunk's faceCount
+ * reproduces `buildMesh(world).faceCount` — pinned by the census oracle.
+ */
+export function buildChunkMesh(
+  world: World,
+  cx: number, cy: number, cz: number,
+  chunkSize: number = CHUNK_SIZE,
+): ChunkMesh {
+  const x0 = cx * chunkSize;
+  const y0 = cy * chunkSize;
+  const z0 = cz * chunkSize;
+  return meshRange(
+    world,
+    x0, y0, z0,
+    Math.min(x0 + chunkSize, world.sizeX),
+    Math.min(y0 + chunkSize, world.sizeY),
+    Math.min(z0 + chunkSize, world.sizeZ),
+  );
+}
+
+/**
+ * The chunks whose mesh can change when the block at (x, y, z) is edited: the
+ * cell's own chunk, plus the chunk of each of its 6 axis-neighbours (which
+ * differs only when the cell sits on a chunk border). A neighbour's visible
+ * faces depend on this cell's opacity, so its chunk must be rebuilt too —
+ * otherwise the seam goes stale. Out-of-bounds neighbours are omitted; the list
+ * is deduplicated. The render layer rebuilds exactly this set.
+ */
+export function chunksAffectedByEdit(
+  world: World,
+  x: number, y: number, z: number,
+  chunkSize: number = CHUNK_SIZE,
+): [number, number, number][] {
+  // The cell itself plus its 6 axis-neighbours. This list is symmetric (each axis
+  // appears as both +1 and -1), so computing a neighbour as `coord - delta` instead
+  // of `coord + delta` yields the SAME set — those sign mutants are equivalent and
+  // unkillable (documented in docs/TESTING.md), which is fine: only the resulting
+  // chunk set matters here, not the visiting order.
+  const offsets: readonly [number, number, number][] = [
+    [0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+  ];
+  const seen = new Set<string>();
+  const out: [number, number, number][] = [];
+  for (const [dx, dy, dz] of offsets) {
+    const px = x + dx, py = y + dy, pz = z + dz;
+    if (!world.inBounds(px, py, pz)) continue; // a neighbour outside the world has no chunk
+    const cx = Math.floor(px / chunkSize);
+    const cy = Math.floor(py / chunkSize);
+    const cz = Math.floor(pz / chunkSize);
+    const key = `${cx},${cy},${cz}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push([cx, cy, cz]);
+  }
+  return out;
 }
