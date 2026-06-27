@@ -29,7 +29,7 @@
     "@types/three": "^0.169.0",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
-    "fast-check": "^3.23.2",
+    "fast-check": "^4.8.0",
     "globals": "^17.7.0",
     "playwright": "^1.61.1",
     "prettier": "^3.9.0",
