@@ -15,7 +15,6 @@ import {
   Fog,
   HemisphereLight,
   DirectionalLight,
-  Mesh,
   MeshLambertMaterial,
   BoxGeometry,
   EdgesGeometry,
@@ -29,7 +28,7 @@ import { Block, HOTBAR, blockDef } from "./core/blocks";
 import { raycast } from "./core/raycast";
 import { boxIntersectsSolid } from "./core/physics";
 import { directionFromYawPitch, type Vec3 } from "./core/math";
-import { buildChunkGeometry } from "./render/chunkGeometry";
+import { ChunkedTerrain } from "./render/chunkedTerrain";
 import { selfCheck } from "./core/selfcheck";
 import { stepMovement, type PlayerState, type MovementTuning } from "./game/movement";
 
@@ -65,15 +64,11 @@ const sun = new DirectionalLight(0xffffff, 0.7);
 sun.position.set(0.5, 1, 0.3);
 scene.add(sun);
 
+// Chunked terrain: the world is split into fixed cubes, each its own mesh, so a
+// block edit rebuilds only the chunk(s) it touches instead of the whole world.
 const terrainMaterial = new MeshLambertMaterial({ vertexColors: true });
-let terrainMesh = new Mesh(buildChunkGeometry(world), terrainMaterial);
-scene.add(terrainMesh);
-
-function rebuildTerrain(): void {
-  const geo = buildChunkGeometry(world);
-  terrainMesh.geometry.dispose();
-  terrainMesh.geometry = geo;
-}
+const terrain = new ChunkedTerrain(world, terrainMaterial);
+scene.add(terrain.group);
 
 // Block-selection highlight (wireframe cube).
 const highlight = new LineSegments(
@@ -169,7 +164,7 @@ function pickBlock() {
 function breakBlock(b: Vec3): void {
   const [x, y, z] = b;
   if (world.get(x, y, z) === Block.Bedrock) return; // Classic: bedrock is permanent
-  if (world.set(x, y, z, Block.Air)) rebuildTerrain();
+  if (world.set(x, y, z, Block.Air)) terrain.rebuildAround(x, y, z);
 }
 
 function placeBlock(p: Vec3): void {
@@ -181,7 +176,7 @@ function placeBlock(p: Vec3): void {
     world.set(x, y, z, Block.Air); // undo
     return;
   }
-  rebuildTerrain();
+  terrain.rebuildAround(x, y, z);
 }
 
 // ---------------------------------------------------------------------------

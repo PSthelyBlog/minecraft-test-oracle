@@ -89,16 +89,36 @@ and a mesher oracle pinning a known face's UVs.
 
 ## Performance and chunking
 
-The current renderer rebuilds the **entire** world mesh on every block edit
-(`rebuildTerrain` in `main.ts`). That's simple and fine up to ~`100³`. To scale further:
+The world is meshed as a grid of fixed **chunks** (`CHUNK_SIZE = 16`, so the default
+`80×32×80` world is `5×2×5` chunks), each its own `BufferGeometry`, so a block edit
+rebuilds only the chunk(s) it touches instead of the whole world.
 
-- Split the world into fixed **chunks** (e.g. `16×16×16`) each with its own `BufferGeometry`.
-- On an edit, rebuild only the affected chunk (and a neighbour if the edit was on a chunk
-  boundary).
-- `buildMesh` already works on any `World`; the cleanest path is a `buildChunkMesh(world,
-  cx, cy, cz)` that iterates one chunk's cells but reads neighbours across chunk borders for
-  correct face culling. **Add a census oracle** that the sum of per-chunk face counts equals
-  the whole-world `buildMesh().faceCount` for the same world — that pins the seams.
+The pieces (all in `src/core/mesher.ts` so they stay oracle-tested, with the Three.js
+wiring in `src/render/chunkedTerrain.ts`):
+
+- `buildChunkMesh(world, cx, cy, cz, chunkSize?)` meshes one chunk's cells but **reads
+  neighbours across chunk borders** (via `world.get`, Air out of bounds), so seams are
+  face-culled correctly. `buildMesh` is just the whole-world case of the same code path.
+- `chunkDims(world, chunkSize?)` is the chunk count per axis; `chunksAffectedByEdit(world,
+  x, y, z, chunkSize?)` returns the chunk of the edited cell plus any neighbour chunk across
+  a border — exactly the set the renderer rebuilds.
+- `ChunkedTerrain` (render shell) holds a `Mesh` per non-empty chunk in a `Group` and
+  exposes `rebuildAround(x, y, z)`.
+
+The oracles that pin it (`src/core/mesher.test.ts`, `src/render/chunkedTerrain.test.ts`):
+
+- **Census** — Σ per-chunk `faceCount` == whole-world `buildMesh().faceCount`, for any world
+  and chunk size, plus a golden seam case (a block pair straddling a border still culls →
+  10, not 12).
+- **Seam multiset** — the *set* of faces across chunks equals the whole-world set exactly
+  (catches a border face dropped in one chunk and re-emitted in another).
+- **Edit-impact differential** — every chunk whose mesh actually changes after an edit is in
+  `chunksAffectedByEdit` (so the renderer never leaves a stale seam).
+- **Incremental == full** — `ChunkedTerrain` after a batch of `rebuildAround` edits equals a
+  from-scratch whole-world mesh.
+
+To change the chunk size, edit `CHUNK_SIZE`. (`chunksAffectedByEdit`'s symmetric ± offset
+list makes its `coord ± delta` sign mutants equivalent — see docs/TESTING.md.)
 
 ## Things to keep invariant
 

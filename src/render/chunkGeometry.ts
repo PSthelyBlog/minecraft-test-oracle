@@ -11,10 +11,10 @@ import {
   Uint32BufferAttribute,
 } from "three";
 import type { World } from "../core/world";
-import { buildMesh } from "../core/mesher";
+import { buildMesh, type ChunkMesh } from "../core/mesher";
 
-export function buildChunkGeometry(world: World): BufferGeometry {
-  const mesh = buildMesh(world);
+/** Upload a mesher result (whole-world or single-chunk) into a BufferGeometry. */
+export function geometryFromMesh(mesh: ChunkMesh): BufferGeometry {
   const geo = new BufferGeometry();
   geo.setAttribute("position", new Float32BufferAttribute(mesh.positions, 3));
   geo.setAttribute("normal", new Float32BufferAttribute(mesh.normals, 3));
@@ -22,4 +22,8 @@ export function buildChunkGeometry(world: World): BufferGeometry {
   geo.setIndex(new Uint32BufferAttribute(mesh.indices, 1));
   geo.computeBoundingSphere();
   return geo;
+}
+
+export function buildChunkGeometry(world: World): BufferGeometry {
+  return geometryFromMesh(buildMesh(world));
 }

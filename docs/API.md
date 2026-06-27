@@ -133,7 +133,13 @@ interface ChunkMesh {
 }
 
 isFaceVisible(world: World, x, y, z, faceIndex: number): boolean   // faceIndex 0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z
-buildMesh(world: World): ChunkMesh
+buildMesh(world: World): ChunkMesh                                 // mesh the whole world
+
+// Chunked meshing (rebuild only what an edit touches)
+const CHUNK_SIZE = 16
+chunkDims(world: World, chunkSize?): { nx, ny, nz }                       // chunk count per axis (ceil)
+buildChunkMesh(world: World, cx, cy, cz, chunkSize?): ChunkMesh           // mesh one chunk, culling across borders
+chunksAffectedByEdit(world: World, x, y, z, chunkSize?): [cx,cy,cz][]     // chunks to rebuild for an edit at (x,y,z)
 ```
 
 A face is emitted iff the neighbour **across it** is not opaque (air, glass, leaves, water,
@@ -141,10 +147,18 @@ or out-of-bounds reveal it). Buffer layout per quad: 4 vertices, 6 indices. Each
 shaded by a fixed ambient factor (top `1.0` … bottom `0.5`) multiplied into its vertex
 colours.
 
+`buildChunkMesh` iterates only one chunk's cells (clamped to the world edge for the last,
+partial chunk) but culls against the full world, so the chunks tile the world and reassemble
+into the exact whole-world mesh — no seams. Vertices are emitted in **world** coordinates, so
+each chunk's geometry sits at the origin.
+
 > Invariants: face count equals an independent neighbour census; a face is culled by the
 > neighbour in *its own* direction (not the opposite); quad winding faces outward (cross of
 > the first triangle aligns with the stored normal); buffer sizes stay consistent
 > (`positions.length === faceCount*12`, `indices.length === faceCount*6`).
+> **Chunking:** Σ per-chunk `faceCount` == whole-world `faceCount` and the per-chunk face
+> *sets* union to the whole-world set; `chunkDims` is the minimal cover (`(n−1)·size < dim ≤
+> n·size`); `chunksAffectedByEdit` reports every chunk an edit can change.
 
 ---
 
@@ -241,14 +255,35 @@ from `up`. Collision is delegated to `moveAndCollide`.
 ## `render/chunkGeometry.ts`
 
 ```ts
-buildChunkGeometry(world: World): THREE.BufferGeometry
+geometryFromMesh(mesh: ChunkMesh): THREE.BufferGeometry   // upload any mesher result
+buildChunkGeometry(world: World): THREE.BufferGeometry     // = geometryFromMesh(buildMesh(world))
 ```
 
-Calls `buildMesh` and uploads its arrays into a `BufferGeometry` (`position`/`normal`/`color`
-at itemSize 3, indexed). The only bridge between the pure core and Three.js geometry. Three's
+Uploads a mesher result into a `BufferGeometry` (`position`/`normal`/`color` at itemSize 3,
+indexed). The only bridge between the pure core and Three.js geometry. Three's
 `BufferGeometry` is pure JS (no WebGL context needed), so this is unit-tested too.
 
 > Invariant: the geometry's attributes are byte-for-byte what the mesher produced.
+
+---
+
+## `render/chunkedTerrain.ts`
+
+```ts
+class ChunkedTerrain {
+  constructor(world: World, material: THREE.Material, chunkSize?: number)
+  readonly group: THREE.Group            // add to the scene; one Mesh per non-empty chunk
+  rebuildAround(x, y, z): void           // remesh only the chunks an edit at (x,y,z) touches
+}
+```
+
+Renders the world as a grid of per-chunk meshes (thin Three.js wiring over the core's
+`buildChunkMesh` / `chunksAffectedByEdit`). Verified by the smoke test for in-browser render,
+and by a unit oracle that its assembled geometry — and its state after incremental
+`rebuildAround` edits — equals an independent whole-world `buildMesh`.
+
+> Invariant: the union of chunk geometries equals the whole-world mesh, and incremental edits
+> keep it that way (no stale seams).
 
 ---
 

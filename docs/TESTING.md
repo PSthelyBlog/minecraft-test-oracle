@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 60 oracle tests once (Vitest)
+npm test            # run all 69 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation    # StrykerJS — mutate the core, report which mutants survive
 npm run smoke       # headless-Chromium boot/render check (start a dev/preview server first)
@@ -73,10 +73,10 @@ Run `npm run mutation` for the live numbers. As of this base implementation:
 | `movement.ts` | 100% | |
 | `physics.ts` | ~98% | |
 | `world.ts` | ~97% | |
+| `mesher.ts` | ~97% | incl. chunked meshing; 3 equivalent sign mutants (see below) |
 | `terrain.ts` | ~95% | |
-| `mesher.ts` | ~94% | |
 | `raycast.ts` | ~84% | remaining survivors are equivalent (see below) |
-| **overall** | **~94%** | 60 tests across 11 files |
+| **overall** | **~94%** | 69 tests across 12 files |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
@@ -98,6 +98,13 @@ document these, not to chase a vanity number. The ones left here:
   so the clamp never binds.
 - **`else { block = Air }` → `{}`** (`terrain.ts`): leaves `block` undefined, which a
   `Uint8Array` coerces to `0` = Air anyway.
+- **Neighbour-offset sign** (`chunksAffectedByEdit` in `mesher.ts`, `coord + delta` →
+  `coord - delta`): the offset list is symmetric (each axis appears as both `+1` and `−1`),
+  so flipping a sign visits the same neighbours in a different order and returns the **same
+  chunk set**. Only the set matters, so these 3 mutants are equivalent. (The chunk-count
+  `chunkDims` mutants — `/` → `*` — were *not* equivalent and were killed by a minimal-cover
+  oracle: extra chunks are empty so the face census misses them, but `(n−1)·size < dim` does
+  not.)
 
 `raycast.ts` sits lowest at ~84% precisely because DDA traversal has many degenerate-input
 guards of this kind. If you want them pinned to a convention anyway, add exact-corner and
@@ -121,7 +128,7 @@ node ".../test-oracle/scripts/oracle-doctor.mjs" .
 ```
 
 It checks the wiring (deps, scripts, configs) and lists any module lacking a sibling oracle.
-Current state: **10/11 modules paired**. The one exception is `src/main.ts` — the browser
+Current state: **11/12 modules paired**. The one exception is `src/main.ts` — the browser
 entry shell (DOM, WebGL, the frame loop) which can't be imported in Node. It is covered by
 the **smoke test** (`scripts/smoke.mjs`) instead: a headless Chromium run that boots the game,
 asserts no console/page errors, that the frame loop ran (HUD shows coordinates), that the
