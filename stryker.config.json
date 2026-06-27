@@ -9,7 +9,6 @@
     "src/core/**/*.{js,ts}",
     "src/game/**/*.{js,ts}",
     "!src/**/*.{test,spec}.*",
-    "!src/**/*.d.ts",
     "!src/core/selfcheck.ts"
   ],
   "thresholds": {
