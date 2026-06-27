@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@stryker-mutator/core": "^8.7.1",
+    "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^8.7.1",
     "@types/three": "^0.169.0",
     "eslint": "^10.6.0",
