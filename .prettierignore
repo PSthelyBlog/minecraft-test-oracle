@@ -1,0 +1,12 @@
+# Build output, generated reports, and the Stryker sandbox — never our source.
+dist/
+reports/
+.stryker-tmp/
+node_modules/
+
+# Binary asset (Prettier can't format it).
+scripts/screenshot.png
+docs/screenshot.png
+
+# Lockfile — managed by npm.
+package-lock.json

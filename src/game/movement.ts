@@ -54,8 +54,8 @@ export function stepMovement(
   if (mlen > 0) { mx /= mlen; mz /= mlen; } // normalize so diagonals aren't faster
 
   const speed = state.flying ? t.fly : t.walk;
-  let vx = mx * speed;
-  let vz = mz * speed;
+  const vx = mx * speed;
+  const vz = mz * speed;
   let vy = state.vel[1];
 
   if (state.flying) {
