@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/PSthelyBlog/minecraft-test-oracle/actions/workflows/ci.yml/badge.svg)](https://github.com/PSthelyBlog/minecraft-test-oracle/actions/workflows/ci.yml)
 [![Live demo](https://img.shields.io/badge/demo-live-success)](https://psthelyblog.github.io/minecraft-test-oracle/)
-[![Mutation score](https://img.shields.io/badge/mutation-~96%25-brightgreen)](docs/TESTING.md)
+[![Mutation score](https://img.shields.io/badge/mutation-~97%25-brightgreen)](docs/TESTING.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 A browser voxel sandbox in the spirit of **Minecraft Classic (2009)**: walk around a
@@ -17,7 +17,7 @@ proven to actually catch bugs via **mutation testing**.
 ```bash
 npm install
 npm run dev        # play at http://localhost:5173
-npm test           # 81 oracle tests (Vitest + fast-check)
+npm test           # 87 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
@@ -97,7 +97,7 @@ among others:
 - **coverage gaps** — the Z-collision branch and player-movement direction were never
   exercised.
 
-Current score: **~96%**. The remaining survivors are documented **equivalent mutants**
+Current score: **~97%**. The remaining survivors are documented **equivalent mutants**
 (loop bounds that read out-of-bounds → Air with no effect, empty error-message strings,
 `1/0 === Infinity` branches, unreachable degenerate-input guards) — the methodology says to
 analyse and leave those, not to chase a vanity 100%. Where a survivor encoded an actual

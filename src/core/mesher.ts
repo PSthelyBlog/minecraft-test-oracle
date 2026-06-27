@@ -7,6 +7,11 @@
  * the single biggest perf win in a voxel renderer and a notorious silent bug
  * surface (wrong neighbour, wrong winding, double-counted interior faces), so
  * the per-face census is oracle-tested.
+ *
+ * Visible faces are also ambient-occluded: each vertex is darkened by how many of
+ * the three neighbour voxels touching it are opaque (see `vertexAO`), and the quad
+ * is split along the diagonal joining its brighter corners to avoid an interpolation
+ * seam. With no occluders this reduces to the old flat per-face shade.
  */
 
 import type { World } from "./world";
@@ -16,7 +21,7 @@ import { tileIndexFor, uvRectForTile } from "./atlas";
 export interface ChunkMesh {
   readonly positions: Float32Array; // xyz per vertex
   readonly normals: Float32Array; // xyz per vertex
-  readonly colors: Float32Array; // rgb per vertex — per-face ambient shade (greyscale)
+  readonly colors: Float32Array; // rgb per vertex — per-face shade × per-vertex AO (greyscale)
   readonly uvs: Float32Array; // st per vertex — into the texture atlas
   readonly indices: Uint32Array; // two triangles per quad
   /** Number of quads (visible faces) emitted. */
@@ -137,6 +142,65 @@ export function isFaceVisible(
   return !isOpaque(world.get(nx, ny, nz));
 }
 
+// ---------------------------------------------------------------------------
+// Ambient occlusion — darken a vertex by how many of the three neighbour voxels
+// touching it (in the face's open layer) are opaque. Replaces the old flat
+// per-face shade with per-vertex shading so corners and crevices read as recessed.
+// ---------------------------------------------------------------------------
+
+/**
+ * Ambient-occlusion level for a vertex, `0` (darkest) … `3` (brightest), from the
+ * three neighbour voxels that touch it in the face's OPEN layer: the two
+ * edge-adjacent `side` cells and the diagonal `corner` cell, each `1` if opaque
+ * else `0`. The standard voxel-AO rule: if BOTH sides are opaque the vertex is
+ * fully occluded regardless of the corner; otherwise it darkens one step per
+ * opaque neighbour. Pinned by the AO truth-table and census oracles.
+ */
+export function vertexAO(side1: number, side2: number, corner: number): number {
+  if (side1 && side2) return 0;
+  return 3 - (side1 + side2 + corner);
+}
+
+/** Brightness multiplier for an AO level: linear from AO_MIN (fully occluded) to 1 (open). */
+const AO_MIN = 0.5;
+function aoFactor(level: number): number {
+  return AO_MIN + ((1 - AO_MIN) * level) / 3;
+}
+
+/**
+ * AO level for one corner `c` of `face` on the block at (x, y, z). The occluders
+ * live in the face's open neighbour cell (x,y,z)+normal; the two tangent axes are
+ * the non-face axes, and the corner's 0/1 offset along each picks the −/+ side to
+ * sample. Returns `vertexAO` of the two side cells and the diagonal corner cell.
+ */
+function cornerAO(
+  world: World,
+  x: number,
+  y: number,
+  z: number,
+  face: Face,
+  c: readonly [number, number, number],
+): number {
+  const n = face.normal;
+  const faceAxis = n[0] !== 0 ? 0 : n[1] !== 0 ? 1 : 2;
+  // The open cell this face looks into (guaranteed non-opaque: the face is visible).
+  const bx = x + n[0],
+    by = y + n[1],
+    bz = z + n[2];
+  const [u, v] = faceAxis === 0 ? [1, 2] : faceAxis === 1 ? [0, 2] : [0, 1];
+  // Unit step along each tangent axis toward this corner's side (c[axis] 1 → +, 0 → −).
+  const su: [number, number, number] = [0, 0, 0];
+  const sv: [number, number, number] = [0, 0, 0];
+  su[u] = c[u] === 1 ? 1 : -1;
+  sv[v] = c[v] === 1 ? 1 : -1;
+  const occ = (ox: number, oy: number, oz: number) =>
+    isOpaque(world.get(bx + ox, by + oy, bz + oz)) ? 1 : 0;
+  const side1 = occ(su[0], su[1], su[2]);
+  const side2 = occ(sv[0], sv[1], sv[2]);
+  const corner = occ(su[0] + sv[0], su[1] + sv[1], su[2] + sv[2]);
+  return vertexAO(side1, side2, corner);
+}
+
 /**
  * Mesh the cells in the half-open box [x0,x1) × [y0,y1) × [z0,z1).
  *
@@ -177,27 +241,46 @@ function meshRange(
           const r = uvRectForTile(tileIndexFor(id, fi));
           const baseVertex = positions.length / 3;
 
+          const levels: number[] = [];
           for (let k = 0; k < 4; k++) {
             const c = f.corners[k];
             positions.push(x + c[0], y + c[1], z + c[2]);
             normals.push(f.normal[0], f.normal[1], f.normal[2]);
-            // Vertex colour carries only the per-face ambient shade now; the block's
-            // colour comes from the sampled atlas texel (texel × shade).
-            colors.push(f.shade, f.shade, f.shade);
+            // Vertex colour = the block's atlas texel × this shade. The shade is the
+            // face's flat directional shade modulated by per-vertex ambient occlusion,
+            // so an unoccluded vertex keeps exactly the old per-face value (AO level 3).
+            const level = cornerAO(world, x, y, z, f, c);
+            levels.push(level);
+            const shade = f.shade * aoFactor(level);
+            colors.push(shade, shade, shade);
             // Map the 4 corners (in winding order) onto the tile's 4 UV corners.
             const [s, t] = FACE_UV[k];
             uvs.push(r.u0 + s * (r.u1 - r.u0), r.v0 + t * (r.v1 - r.v0));
           }
 
-          // Two triangles: (0,1,2) and (0,2,3).
-          indices.push(
-            baseVertex,
-            baseVertex + 1,
-            baseVertex + 2,
-            baseVertex,
-            baseVertex + 2,
-            baseVertex + 3,
-          );
+          // Two triangles. Split along the diagonal joining the two BRIGHTER corners
+          // so the dark pair doesn't bleed across the shared edge (the classic AO
+          // anisotropy fix). Default diagonal 0–2; flip to 1–3 when that pair is
+          // brighter. Both triangulations stay CCW-outward; only `indices` reorders.
+          if (levels[0] + levels[2] < levels[1] + levels[3]) {
+            indices.push(
+              baseVertex + 1,
+              baseVertex + 2,
+              baseVertex + 3,
+              baseVertex + 1,
+              baseVertex + 3,
+              baseVertex,
+            );
+          } else {
+            indices.push(
+              baseVertex,
+              baseVertex + 1,
+              baseVertex + 2,
+              baseVertex,
+              baseVertex + 2,
+              baseVertex + 3,
+            );
+          }
           faceCount++;
         }
       }

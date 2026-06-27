@@ -7,5 +7,12 @@ export default defineConfig({
     // crashed before cleaning .stryker-tmp) — it would silently double every count.
     exclude: [...configDefaults.exclude, "**/.stryker-tmp/**"],
     environment: "node",
+    // The heavier property-based oracles (e.g. the mesher AO census, which calls
+    // world.get ~12× per face over many random worlds) run well under a second
+    // normally, but StrykerJS instruments the source — on a slow CI runner a single
+    // such test can cross vitest's default 5s testTimeout and abort the mutation
+    // dry-run. Give property tests room; hung mutants are still bounded by Stryker's
+    // own per-mutant timeout, so this doesn't slow mutation or weaken any oracle.
+    testTimeout: 20000,
   },
 });
