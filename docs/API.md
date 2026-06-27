@@ -127,13 +127,14 @@ a zero normal.
 interface ChunkMesh {
   positions: Float32Array;   // xyz per vertex
   normals: Float32Array;     // xyz per vertex
-  colors: Float32Array;      // rgb per vertex — per-face ambient shade (greyscale)
+  colors: Float32Array;      // rgb per vertex — per-face shade × per-vertex AO (greyscale)
   uvs: Float32Array;         // st per vertex — into the texture atlas
   indices: Uint32Array;      // 6 per quad (two triangles)
   faceCount: number;         // number of visible quads emitted
 }
 
 isFaceVisible(world: World, x, y, z, faceIndex: number): boolean   // faceIndex 0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z
+vertexAO(side1: number, side2: number, corner: number): number     // ambient-occlusion level 0..3 (0=darkest); both sides ⇒ 0
 buildMesh(world: World): ChunkMesh                                 // mesh the whole world
 
 // Chunked meshing (rebuild only what an edit touches)

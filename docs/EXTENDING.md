@@ -86,8 +86,8 @@ golden hash.
 ## Textures: the atlas
 
 Blocks are textured from a procedural **texture atlas** (no image assets). The flat
-per-vertex colour is gone; vertex colour now carries only the per-face ambient shade, so the
-final look is `atlas texel × shade × lighting`.
+per-vertex colour is gone; vertex colour now carries the per-face directional shade **× per-vertex
+ambient occlusion** (`vertexAO`), so the final look is `atlas texel × shade × lighting`.
 
 The layout math lives in the oracle-tested core (`src/core/atlas.ts`):
 

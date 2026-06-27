@@ -136,9 +136,10 @@ World (Uint8Array)
   into the exact whole-world mesh (`buildMesh` is the whole-world case of the same code).
 - Blocks are **textured** from a procedural atlas: the mesher emits per-face `uvs` into a
   tile chosen by `core/atlas.tileIndexFor` (grass top/side/bottom, log end-grain), and
-  `render/atlasTexture` paints the `DataTexture`. The per-vertex `colors` now carry only the
-  per-face ambient `shade` (top `1.0` … bottom `0.5`), so the look is `texel × shade ×
-lighting` — the flat-shaded Classic style, now textured.
+  `render/atlasTexture` paints the `DataTexture`. The per-vertex `colors` carry a greyscale
+  `shade` = the per-face directional shade (top `1.0` … bottom `0.5`) **× per-vertex ambient
+  occlusion** (corners/crevices darken; `vertexAO`), so the look is `texel × shade ×
+lighting` — the flat-shaded Classic style, now textured and contact-shaded.
 - Lighting is a `HemisphereLight` + a soft `DirectionalLight`; a `Fog` matching the sky
   colour fades the far edge of the world.
 

@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 81 oracle tests once (Vitest)
+npm test            # run all 87 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -91,18 +91,18 @@ correctness bug. `mutation:clean` propagates Stryker's exit code, so it gates on
 Run `npm run mutation:clean` for the authoritative live numbers (see the footgun above for
 why `mutation:clean` and not `mutation`). As of this base implementation:
 
-| Module        | Mutation score | Notes                                                                 |
-| ------------- | -------------: | --------------------------------------------------------------------- |
-| `blocks.ts`   |           100% | static data; falsifiability proven by injection (see below)           |
-| `math.ts`     |           100% |                                                                       |
-| `movement.ts` |           100% |                                                                       |
-| `atlas.ts`    |           100% | texture-atlas layout; `TILE_COLOR` static (injection-proven)          |
-| `physics.ts`  |           ~98% |                                                                       |
-| `world.ts`    |           ~97% |                                                                       |
-| `mesher.ts`   |           ~97% | incl. chunked meshing + UVs; 3 equivalent sign mutants (see below)    |
-| `terrain.ts`  |           ~95% |                                                                       |
-| `raycast.ts`  |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below) |
-| **overall**   |       **~96%** | 81 tests across 14 files                                              |
+| Module        | Mutation score | Notes                                                                             |
+| ------------- | -------------: | --------------------------------------------------------------------------------- |
+| `blocks.ts`   |           100% | static data; falsifiability proven by injection (see below)                       |
+| `math.ts`     |           100% |                                                                                   |
+| `movement.ts` |           100% |                                                                                   |
+| `atlas.ts`    |           100% | texture-atlas layout; `TILE_COLOR` static (injection-proven)                      |
+| `physics.ts`  |           ~98% |                                                                                   |
+| `world.ts`    |           ~97% |                                                                                   |
+| `mesher.ts`   |         ~97.6% | incl. chunked meshing + UVs + ambient occlusion; 4 equivalent mutants (see below) |
+| `terrain.ts`  |           ~95% |                                                                                   |
+| `raycast.ts`  |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)             |
+| **overall**   |     **~96.7%** | 87 tests across 14 files                                                          |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
@@ -146,6 +146,12 @@ document these, not to chase a vanity number. The ones left here:
   `chunkDims` mutants — `/` → `*` — were _not_ equivalent and were killed by a minimal-cover
   oracle: extra chunks are empty so the face census misses them, but `(n−1)·size < dim` does
   not.)
+- **AO corner-offset X component** (`cornerAO` in `mesher.ts`, `su[0] + sv[0]` →
+  `su[0] - sv[0]`): the diagonal corner-occluder offset is the sum of the two tangent step
+  vectors. X is never the _second_ tangent axis (the tangent pairs are `[1,2] / [0,2] / [0,1]`,
+  so `v ∈ {2,2,1}`), hence `sv[0]` is structurally always `0` and `±sv[0]` is indistinguishable.
+  The **Y and Z** components of the same expression are _not_ equivalent (both axes appear as a
+  `v`) and the AO census kills them; only this one X mutant survives.
 
 `raycast.ts` used to sit lowest (~84%) precisely because DDA traversal has many
 degenerate-input guards. The ones that encode a _choice_ (tie-break order, inclusive reach,

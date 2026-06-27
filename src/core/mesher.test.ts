@@ -5,6 +5,7 @@ import { Block, isOpaque } from "./blocks";
 import {
   buildMesh,
   isFaceVisible,
+  vertexAO,
   buildChunkMesh,
   chunkDims,
   chunksAffectedByEdit,
@@ -289,6 +290,219 @@ describe("mesher oracle", () => {
     for (let y = 1; y <= n; y++)
       for (let z = 1; z <= n; z++) for (let x = 1; x <= n; x++) w.set(x, y, z, Block.Stone);
     expect(buildMesh(w).faceCount).toBe(6 * n * n);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ambient occlusion: each vertex is darkened by how many of the three neighbour
+// voxels touching it (in the face's open layer) are opaque. The colours are
+// per-vertex now (faceShade × AO), and the quad is split along the diagonal
+// joining its brighter corners. All re-derivations below are INDEPENDENT of the
+// mesher's own AO code.
+// ---------------------------------------------------------------------------
+
+// Face order 0=+X,1=−X,2=+Y,3=−Y,4=+Z,5=−Z (mirrors FACES in mesher.ts).
+const FACE_SHADE = [0.8, 0.8, 1.0, 0.5, 0.9, 0.9] as const;
+const faceIndexFromNormal = (nx: number, ny: number, nz: number): number =>
+  nx === 1 ? 0 : nx === -1 ? 1 : ny === 1 ? 2 : ny === -1 ? 3 : nz === 1 ? 4 : 5;
+// Independent brightness ramp: AO_MIN (0.5) at level 0, 1.0 at level 3.
+const aoBrightness = (level: number): number => 0.5 + (0.5 * level) / 3;
+
+describe("mesher ambient-occlusion oracle", () => {
+  // TRUTH TABLE: vertexAO against a HAND-ENUMERATED table (not the same formula),
+  // so any mutated arithmetic/branch in the source is loud.
+  test("vertexAO matches the hand-enumerated 8-case table", () => {
+    // [side1, side2, corner] -> level
+    const table: [number, number, number, number][] = [
+      [0, 0, 0, 3], // open on all three → brightest
+      [1, 0, 0, 2], // one side occludes
+      [0, 1, 0, 2],
+      [0, 0, 1, 2], // only the corner occludes
+      [1, 0, 1, 1], // one side + corner (sides not both)
+      [0, 1, 1, 1],
+      [1, 1, 0, 0], // both sides → fully dark, corner irrelevant
+      [1, 1, 1, 0],
+    ];
+    for (const [s1, s2, c, lvl] of table) expect(vertexAO(s1, s2, c)).toBe(lvl);
+  });
+
+  // PROPERTIES: symmetry in the two sides, monotonicity (an extra occluder never
+  // brightens), and the both-sides ⇒ 0 (corner-independent) rule.
+  test("vertexAO is side-symmetric, monotone, and zero when both sides occlude", () => {
+    for (const s1 of [0, 1])
+      for (const s2 of [0, 1])
+        for (const c of [0, 1]) {
+          expect(vertexAO(s1, s2, c)).toBe(vertexAO(s2, s1, c)); // symmetric in sides
+          if (!s1) expect(vertexAO(1, s2, c)).toBeLessThanOrEqual(vertexAO(0, s2, c));
+          if (!s2) expect(vertexAO(s1, 1, c)).toBeLessThanOrEqual(vertexAO(s1, 0, c));
+          if (!c) expect(vertexAO(s1, s2, 1)).toBeLessThanOrEqual(vertexAO(s1, s2, 0));
+        }
+    expect(vertexAO(1, 1, 0)).toBe(0); // both sides ⇒ 0 …
+    expect(vertexAO(1, 1, 1)).toBe(0); // … regardless of the corner
+  });
+
+  // INVARIANT: with no neighbours, AO is level 3 everywhere, so every vertex keeps
+  // exactly its face's flat directional shade (AO is a strict extension of the old
+  // per-face shading). Greyscale too: r==g==b.
+  test("invariant: a lone block keeps each face's flat shade (no occlusion)", () => {
+    const w = new World(3, 3, 3);
+    w.set(1, 1, 1, Block.Stone);
+    const m = buildMesh(w);
+    expect(m.faceCount).toBe(6);
+    for (let f = 0; f < m.faceCount; f++) {
+      const no = f * 4 * 3;
+      const fi = faceIndexFromNormal(m.normals[no], m.normals[no + 1], m.normals[no + 2]);
+      for (let k = 0; k < 4; k++) {
+        const o = (f * 4 + k) * 3;
+        expect(m.colors[o]).toBeCloseTo(FACE_SHADE[fi], 6);
+        expect(m.colors[o]).toBe(m.colors[o + 1]);
+        expect(m.colors[o + 1]).toBe(m.colors[o + 2]);
+      }
+    }
+  });
+
+  // HAND-COMPUTED GOLDEN: one opaque block diagonally above the +Z edge of a block's
+  // TOP face occludes exactly that face's two +Z corners. Reasoned out by hand to
+  // catch a systematic geometry bug the census below could share with the source.
+  //
+  //   target (1,1,1) Stone; occluder (1,2,2) Stone sits in the top face's open layer
+  //   (y=2), one step in +Z. The +Y face's corners at z=2 (offset c[2]=1) sample
+  //   (1,2,2) as their `side` neighbour → AO level 2; the z=1 corners stay level 3.
+  test("golden: a +Z occluder darkens exactly the top face's two +Z corners", () => {
+    const w = new World(4, 4, 4);
+    w.set(1, 1, 1, Block.Stone);
+    w.set(1, 2, 2, Block.Stone); // diagonal — does not cull the top face (neighbour 1,2,1 is air)
+    const m = buildMesh(w);
+
+    // find the +Y face whose owning cell is (1,1,1)
+    let top = -1;
+    for (let f = 0; f < m.faceCount; f++) {
+      const no = f * 4 * 3;
+      if (m.normals[no + 1] !== 1) continue; // +Y only
+      const p = f * 4 * 3;
+      const cy = Math.floor((m.positions[p + 1] + m.positions[p + 7]) / 2 - 0.5);
+      if (cy === 1) top = f; // plane y=2 ⇒ cell y=1 (our block, not the occluder's top at y=3)
+    }
+    expect(top).toBeGreaterThanOrEqual(0);
+
+    const occluded = 1.0 * aoBrightness(2); // top shade × AO level 2
+    const open = 1.0 * aoBrightness(3); // = 1.0
+    for (let k = 0; k < 4; k++) {
+      const p = (top * 4 + k) * 3;
+      const zOffset = m.positions[p + 2] - 1; // cell z is 1; corner z is 1 or 2
+      const shade = m.colors[(top * 4 + k) * 3];
+      if (zOffset === 1) {
+        expect(shade).toBeCloseTo(occluded, 6); // a +Z corner → darkened
+      } else {
+        expect(shade).toBeCloseTo(open, 6); // a −Z corner → untouched
+      }
+    }
+  });
+
+  // CENSUS (headline, independent re-derivation): for every face in random worlds,
+  // recover each vertex's corner from its position, re-sample the three occluders
+  // straight from the world with the test's OWN geometry, and check the emitted
+  // colour equals faceShade × AO — and that the triangle split matches the
+  // brighter-diagonal rule. Shares no code with the mesher's AO path.
+  test("census: every vertex colour and the quad split match an independent AO re-derivation", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Grass, Block.Glass, Block.Leaves);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 27, maxLength: 27 }), (cells) => {
+        const w = new World(3, 3, 3);
+        cells.forEach((b, i) => (w.data[i] = b));
+        const m = buildMesh(w);
+
+        for (let f = 0; f < m.faceCount; f++) {
+          const no = f * 4 * 3;
+          const nx = m.normals[no],
+            ny = m.normals[no + 1],
+            nz = m.normals[no + 2];
+          const fi = faceIndexFromNormal(nx, ny, nz);
+          const faceAxis = nx !== 0 ? 0 : ny !== 0 ? 1 : 2;
+          const [u, v] = faceAxis === 0 ? [1, 2] : faceAxis === 1 ? [0, 2] : [0, 1];
+          // owning cell (inner side of the face)
+          const p0 = f * 4 * 3;
+          const cell = [
+            Math.floor((m.positions[p0] + m.positions[p0 + 6]) / 2 - nx * 0.5),
+            Math.floor((m.positions[p0 + 1] + m.positions[p0 + 7]) / 2 - ny * 0.5),
+            Math.floor((m.positions[p0 + 2] + m.positions[p0 + 8]) / 2 - nz * 0.5),
+          ];
+          const base = [cell[0] + nx, cell[1] + ny, cell[2] + nz]; // open neighbour cell
+
+          const occ = (o: number[]) =>
+            isOpaque(w.get(base[0] + o[0], base[1] + o[1], base[2] + o[2])) ? 1 : 0;
+          const levels: number[] = [];
+          for (let k = 0; k < 4; k++) {
+            const p = (f * 4 + k) * 3;
+            const corner = [
+              m.positions[p] - cell[0],
+              m.positions[p + 1] - cell[1],
+              m.positions[p + 2] - cell[2],
+            ];
+            const su = [0, 0, 0];
+            const sv = [0, 0, 0];
+            su[u] = corner[u] === 1 ? 1 : -1;
+            sv[v] = corner[v] === 1 ? 1 : -1;
+            const s1 = occ(su);
+            const s2 = occ(sv);
+            const cc = occ([su[0] + sv[0], su[1] + sv[1], su[2] + sv[2]]);
+            const level = s1 && s2 ? 0 : 3 - (s1 + s2 + cc); // independent table
+            levels.push(level);
+            const expected = FACE_SHADE[fi] * aoBrightness(level);
+            expect(m.colors[p]).toBeCloseTo(expected, 6);
+            expect(m.colors[p]).toBe(m.colors[p + 1]); // greyscale
+            expect(m.colors[p + 1]).toBe(m.colors[p + 2]);
+          }
+
+          // brighter-diagonal split: default 0–2, flip to 1–3 when that pair is brighter.
+          const bv = f * 4;
+          const flip = levels[0] + levels[2] < levels[1] + levels[3];
+          const expectedIdx = flip
+            ? [bv + 1, bv + 2, bv + 3, bv + 1, bv + 3, bv]
+            : [bv, bv + 1, bv + 2, bv, bv + 2, bv + 3];
+          expect(Array.from(m.indices.slice(f * 6, f * 6 + 6))).toEqual(expectedIdx);
+        }
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  // WINDING under the flip: both triangulations must stay CCW-outward. Over a random
+  // world, for every face cross(v1−v0, v2−v0)·normal > 0 for BOTH triangles, whichever
+  // diagonal was chosen — so a flipped quad never inverts a face.
+  test("both triangles of every (possibly flipped) quad wind outward", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Grass, Block.Glass, Block.Leaves);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 27, maxLength: 27 }), (cells) => {
+        const w = new World(3, 3, 3);
+        cells.forEach((b, i) => (w.data[i] = b));
+        const m = buildMesh(w);
+        for (let f = 0; f < m.faceCount; f++) {
+          const no = f * 4 * 3;
+          const normal = [m.normals[no], m.normals[no + 1], m.normals[no + 2]];
+          const vert = (idx: number) => [
+            m.positions[idx * 3],
+            m.positions[idx * 3 + 1],
+            m.positions[idx * 3 + 2],
+          ];
+          for (let tri = 0; tri < 2; tri++) {
+            const a = vert(m.indices[f * 6 + tri * 3]);
+            const b = vert(m.indices[f * 6 + tri * 3 + 1]);
+            const c = vert(m.indices[f * 6 + tri * 3 + 2]);
+            const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            const cross = [
+              e1[1] * e2[2] - e1[2] * e2[1],
+              e1[2] * e2[0] - e1[0] * e2[2],
+              e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            const dot = cross[0] * normal[0] + cross[1] * normal[1] + cross[2] * normal[2];
+            expect(dot).toBeGreaterThan(0);
+          }
+        }
+      }),
+      { numRuns: 150 },
+    );
   });
 });
 
