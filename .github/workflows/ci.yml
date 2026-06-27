@@ -70,7 +70,7 @@ jobs:
           kill $PREVIEW_PID
       - name: Upload smoke screenshot
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: smoke-screenshot
           path: scripts/screenshot.png
@@ -92,7 +92,7 @@ jobs:
         run: npm run mutation
       - name: Upload mutation report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutation-report
           path: reports/mutation/
