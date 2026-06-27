@@ -19,6 +19,7 @@ export function geometryFromMesh(mesh: ChunkMesh): BufferGeometry {
   geo.setAttribute("position", new Float32BufferAttribute(mesh.positions, 3));
   geo.setAttribute("normal", new Float32BufferAttribute(mesh.normals, 3));
   geo.setAttribute("color", new Float32BufferAttribute(mesh.colors, 3));
+  geo.setAttribute("uv", new Float32BufferAttribute(mesh.uvs, 2));
   geo.setIndex(new Uint32BufferAttribute(mesh.indices, 1));
   geo.computeBoundingSphere();
   return geo;

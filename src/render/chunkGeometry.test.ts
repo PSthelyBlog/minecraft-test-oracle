@@ -23,17 +23,21 @@ describe("chunkGeometry oracle", () => {
     const pos = geo.getAttribute("position");
     const norm = geo.getAttribute("normal");
     const col = geo.getAttribute("color");
+    const uv = geo.getAttribute("uv");
     const idx = geo.getIndex();
 
-    // itemSize (3 for vectors, 1 for indices) — a wrong stride silently skews data.
+    // itemSize (3 for vectors, 2 for UVs, 1 for indices) — a wrong stride silently skews data.
     expect(pos.itemSize).toBe(3);
     expect(norm.itemSize).toBe(3);
     expect(col.itemSize).toBe(3);
+    expect(uv.itemSize).toBe(2);
 
     // exact same contents as the mesher emitted
     expect(Array.from(pos.array)).toEqual(Array.from(mesh.positions));
     expect(Array.from(norm.array)).toEqual(Array.from(mesh.normals));
     expect(Array.from(col.array)).toEqual(Array.from(mesh.colors));
+    expect(Array.from(uv.array)).toEqual(Array.from(mesh.uvs));
+    expect(uv.count).toBe(mesh.faceCount * 4); // 4 UVs per face, itemSize 2
     expect(idx).not.toBeNull();
     expect(Array.from(idx!.array)).toEqual(Array.from(mesh.indices));
 

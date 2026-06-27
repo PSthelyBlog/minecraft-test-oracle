@@ -12,7 +12,7 @@ proven to actually catch bugs via **mutation testing**.
 ```bash
 npm install
 npm run dev        # play at http://localhost:5173
-npm test           # 69 oracle tests (Vitest + fast-check)
+npm test           # 78 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
@@ -40,7 +40,8 @@ src/core/      pure, dependency-free, oracle-tested logic
   blocks.ts      block registry: id → {solid, opaque, colour}
   world.ts       fixed-size voxel store; coord↔index is the single source of truth
   raycast.ts     DDA voxel traversal for block picking (break/place)
-  mesher.ts      face-culled mesh builder (whole-world + per-chunk, seam-correct)
+  mesher.ts      face-culled mesh builder (whole-world + per-chunk, seam-correct) + UVs
+  atlas.ts       texture-atlas layout: (block, face) → tile → UV rect
   terrain.ts     deterministic seeded terrain generation
   physics.ts     AABB vs voxel-grid collision, resolved per axis
   selfcheck.ts   boot self-check: re-derives cheap invariants and THROWS at startup
@@ -49,6 +50,7 @@ src/game/
 src/render/
   chunkGeometry.ts  uploads the mesher's arrays into a Three.js BufferGeometry
   chunkedTerrain.ts grid of per-chunk meshes; an edit rebuilds only affected chunks
+  atlasTexture.ts   procedural block texture atlas (DataTexture, deterministic)
 src/main.ts      the untestable shell: Three.js, DOM, input, frame loop
 ```
 
@@ -102,7 +104,7 @@ mutants with the Vitest runner).
 ## Plugin commands used
 
 - `/oracle-init` — scaffolded Vitest + fast-check + StrykerJS.
-- `/oracle-doctor` — verified wiring and the paired-oracle convention (11/12 modules; the
+- `/oracle-doctor` — verified wiring and the paired-oracle convention (13/14 modules; the
   exception is the browser entry shell `main.ts`, covered by the smoke test).
 - `npm run mutation` (`/oracle-audit`) — the falsifiability proof above.
 

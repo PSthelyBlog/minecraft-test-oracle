@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 69 oracle tests once (Vitest)
+npm test            # run all 78 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation    # StrykerJS — mutate the core, report which mutants survive
 npm run smoke       # headless-Chromium boot/render check (start a dev/preview server first)
@@ -71,12 +71,13 @@ Run `npm run mutation` for the live numbers. As of this base implementation:
 | `blocks.ts` | 100% | static data; falsifiability proven by injection (see below) |
 | `math.ts` | 100% | |
 | `movement.ts` | 100% | |
+| `atlas.ts` | 100% | texture-atlas layout; `TILE_COLOR` static (injection-proven) |
 | `physics.ts` | ~98% | |
 | `world.ts` | ~97% | |
-| `mesher.ts` | ~97% | incl. chunked meshing; 3 equivalent sign mutants (see below) |
+| `mesher.ts` | ~97% | incl. chunked meshing + UVs; 3 equivalent sign mutants (see below) |
 | `terrain.ts` | ~95% | |
 | `raycast.ts` | ~84% | remaining survivors are equivalent (see below) |
-| **overall** | **~94%** | 69 tests across 12 files |
+| **overall** | **~95%** | 78 tests across 14 files |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
@@ -128,7 +129,7 @@ node ".../test-oracle/scripts/oracle-doctor.mjs" .
 ```
 
 It checks the wiring (deps, scripts, configs) and lists any module lacking a sibling oracle.
-Current state: **11/12 modules paired**. The one exception is `src/main.ts` — the browser
+Current state: **13/14 modules paired**. The one exception is `src/main.ts` — the browser
 entry shell (DOM, WebGL, the frame loop) which can't be imported in Node. It is covered by
 the **smoke test** (`scripts/smoke.mjs`) instead: a headless Chromium run that boots the game,
 asserts no console/page errors, that the frame loop ran (HUD shows coordinates), that the
