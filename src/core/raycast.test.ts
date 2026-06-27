@@ -195,3 +195,67 @@ describe("raycast oracle", () => {
     expect(hit!.place).toEqual([7, 7, 7]); // placing onto self (caller treats dist 0 specially)
   });
 });
+
+/**
+ * Degenerate-input CONVENTIONS, pinned as golden cases.
+ *
+ * The DDA has several branches that only bite on measure-zero inputs — the exact
+ * reach boundary, exact corner/edge ties, the maxDist guard. The randomized slab
+ * oracle deliberately skips these (it flags corners `ambiguous`), so without
+ * explicit cases their behaviour is merely incidental: a refactor could flip it
+ * silently and every test would still pass. These goldens make each choice
+ * intentional. (They are conventions chosen here, not laws of nature — if you change
+ * one, change its golden too.) See docs/TESTING.md#equivalent-mutants for the
+ * survivors that remain genuinely equivalent and why.
+ */
+describe("raycast degenerate-input conventions", () => {
+  // CONVENTION: both entry guards — zero reach (maxDist ≤ 0) and zero direction —
+  // fire BEFORE the inside-block check, so each yields null even when the origin sits
+  // inside a solid block. Pins `maxDist <= 0` (removing/weakening it returns a
+  // distance-0 hit) and the `dirLen === 0` operand (dropping it lets a zero-direction
+  // ray fall through to the inside-block hit). The contrast case shows a valid ray
+  // from inside *does* hit at distance 0, so these are guard behaviours, not "inside
+  // never hits".
+  test("the reach and zero-direction guards fire before the inside-block hit", () => {
+    expect(raycast(single(7, 7, 7), [7.5, 7.5, 7.5], [1, 0, 0], 0)).toBeNull(); // zero reach
+    expect(raycast(single(7, 7, 7), [7.5, 7.5, 7.5], [0, 0, 0], 8)).toBeNull(); // zero direction
+    // contrast: a valid ray with positive reach from inside still hits at distance 0
+    expect(raycast(single(7, 7, 7), [7.5, 7.5, 7.5], [1, 0, 0], 1)!.distance).toBe(0);
+  });
+
+  // CONVENTION: the reach test is inclusive of the exact boundary — a block whose
+  // entry point is at *exactly* maxDist is hit; one just beyond is missed. Pins the
+  // strict `if (t > maxDist) break` (a `>=` would drop the exact-reach hit; deleting
+  // the break would return hits beyond reach). The entry distance here is exactly
+  // 4.5, which is representable, so the equality is exact (no tolerance).
+  test("a block entered at exactly maxDist is hit; just beyond is missed", () => {
+    const origin: Vec3 = [0.5, 5.5, 5.5];
+    const atEdge = raycast(single(5, 5, 5), origin, [1, 0, 0], 4.5);
+    expect(atEdge).not.toBeNull();
+    expect(atEdge!.block).toEqual([5, 5, 5]);
+    expect(atEdge!.distance).toBe(4.5);
+    expect(raycast(single(5, 5, 5), origin, [1, 0, 0], 4.4)).toBeNull();
+  });
+
+  // CONVENTION: on an exact tie between two axes' next boundaries — a ray threading a
+  // voxel edge/corner — the step order is X over Y over Z. The `<=` comparisons let
+  // the earlier axis win; a `<` would hand the tie to the other axis, taking a
+  // different path into a different cell. Each diagonal below ties two axes exactly
+  // (equal direction components ⇒ identical tMax), landing the decisive step on the tie.
+  test("exact edge ties break by axis priority X > Y > Z", () => {
+    // X vs Y tie → X wins: enters (1,0,5) through its −X face.
+    const xy = raycast(single(1, 0, 5), [0.5, 0.5, 5.5], [1, 1, 0], 32)!;
+    expect(xy.block).toEqual([1, 0, 5]);
+    expect(xy.normal).toEqual([-1, 0, 0]);
+
+    // X vs Z tie → X wins: enters (1,5,0) through its −X face.
+    const xz = raycast(single(1, 5, 0), [0.5, 5.5, 0.5], [1, 0, 1], 32)!;
+    expect(xz.block).toEqual([1, 5, 0]);
+    expect(xz.normal).toEqual([-1, 0, 0]);
+
+    // Y vs Z tie (dx = 0, so X is never the minimum) → Y wins: enters (5,1,0) via −Y.
+    const yz = raycast(single(5, 1, 0), [5.5, 0.5, 0.5], [0, 1, 1], 32)!;
+    expect(yz.block).toEqual([5, 1, 0]);
+    expect(yz.normal).toEqual([0, -1, 0]);
+  });
+});
