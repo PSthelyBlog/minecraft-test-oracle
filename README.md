@@ -1,5 +1,10 @@
 # Minecraft Classic Clone — with a falsifiable test-oracle core
 
+[![CI](https://github.com/PSthelyBlog/minecraft-test-oracle/actions/workflows/ci.yml/badge.svg)](https://github.com/PSthelyBlog/minecraft-test-oracle/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/demo-live-success)](https://psthelyblog.github.io/minecraft-test-oracle/)
+[![Mutation score](https://img.shields.io/badge/mutation-~96%25-brightgreen)](docs/TESTING.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 A browser voxel sandbox in the spirit of **Minecraft Classic (2009)**: walk around a
 bounded blocky world, break and place blocks, fly. Built in TypeScript + Three.js.
 
