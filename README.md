@@ -12,7 +12,7 @@ proven to actually catch bugs via **mutation testing**.
 ```bash
 npm install
 npm run dev        # play at http://localhost:5173
-npm test           # 78 oracle tests (Vitest + fast-check)
+npm test           # 81 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
@@ -92,10 +92,12 @@ among others:
 - **coverage gaps** — the Z-collision branch and player-movement direction were never
   exercised.
 
-Current score: **~94%**. The remaining survivors are documented **equivalent mutants**
+Current score: **~96%**. The remaining survivors are documented **equivalent mutants**
 (loop bounds that read out-of-bounds → Air with no effect, empty error-message strings,
-exact-boundary `<=` vs `<`, zero-direction-component step signs) — the methodology says to
-analyse and leave those, not to chase a vanity 100%.
+`1/0 === Infinity` branches, unreachable degenerate-input guards) — the methodology says to
+analyse and leave those, not to chase a vanity 100%. Where a survivor encoded an actual
+*choice* — raycast's corner tie-break order, inclusive reach, entry guards — it was pinned
+with a golden case instead, so the behaviour is intentional rather than incidental.
 
 Static data (`blocks.ts`) is verified falsifiable by direct injection and excluded from
 the mutation *score* via `ignoreStatic` (Stryker can't activate import-time-constant

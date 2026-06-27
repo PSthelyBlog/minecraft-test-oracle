@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 78 oracle tests once (Vitest)
+npm test            # run all 81 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation    # StrykerJS — mutate the core, report which mutants survive
 npm run smoke       # headless-Chromium boot/render check (start a dev/preview server first)
@@ -76,8 +76,8 @@ Run `npm run mutation` for the live numbers. As of this base implementation:
 | `world.ts` | ~97% | |
 | `mesher.ts` | ~97% | incl. chunked meshing + UVs; 3 equivalent sign mutants (see below) |
 | `terrain.ts` | ~95% | |
-| `raycast.ts` | ~84% | remaining survivors are equivalent (see below) |
-| **overall** | **~95%** | 78 tests across 14 files |
+| `raycast.ts` | ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below) |
+| **overall** | **~96%** | 81 tests across 14 files |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
@@ -92,9 +92,24 @@ document these, not to chase a vanity number. The ones left here:
   mesher): `world.get` returns `Air` out of bounds, contributing no faces. No effect.
 - **Empty error-message strings** (`world.ts` constructor): the error still throws; the
   message text is not behaviour.
-- **Exact-boundary `<=` vs `<`** and **zero-direction-component step signs** (`raycast.ts`
-  DDA guards and corner tie-breaks): only differ on measure-zero inputs (a ray passing
-  exactly through a voxel corner, a reach of exactly 0) that don't occur in gameplay rays.
+- **`raycast.ts` degenerate-input survivors.** The DDA's behaviour on measure-zero inputs
+  used to leave ~16% of mutants alive. The *intentional* conventions are now **pinned with
+  golden cases** (`describe("raycast degenerate-input conventions")`): the zero-reach and
+  zero-direction guards both fire before the inside-block hit; a block entered at *exactly*
+  `maxDist` is hit while one just beyond is missed; and exact edge/corner ties break by axis
+  priority **X > Y > Z**. What remains (raycast ~92%) is genuinely **equivalent**:
+  - *zero-direction step sign* (`d > 0` → `d >= 0` on each axis): when a direction component
+    is exactly 0 that axis' `tMax` is `Infinity` and is never selected, so the step value is
+    never read.
+  - *`d !== 0 ? abs(1/d) : Infinity` → `true`*: `1/0` is already `Infinity`, so forcing the
+    division branch produces the identical value.
+  - *dead `normal` initializer* (`[0,0,0]` → `[]`): every return path assigns `normal` first
+    (or uses a literal), so the initial value is never observed.
+  - *`while (t <= maxDist)` → `t < maxDist`*: differs only when a voxel boundary lands at
+    `t === maxDist` exactly *and* the next cell is reached at the same `t` (a corner exactly
+    at the reach limit) — a measure-zero input.
+  - *`step > 0` → `step >= 0`* in `boundaryT`: unreachable, because `step === 0` already
+    returned `Infinity` one line above.
 - **`min(sizeY-1, h)` clamp** (`terrain.ts`): the terrain amplitude never reaches the cap,
   so the clamp never binds.
 - **`else { block = Air }` → `{}`** (`terrain.ts`): leaves `block` undefined, which a
@@ -107,9 +122,10 @@ document these, not to chase a vanity number. The ones left here:
   oracle: extra chunks are empty so the face census misses them, but `(n−1)·size < dim` does
   not.)
 
-`raycast.ts` sits lowest at ~84% precisely because DDA traversal has many degenerate-input
-guards of this kind. If you want them pinned to a convention anyway, add exact-corner and
-exact-reach golden cases.
+`raycast.ts` used to sit lowest (~84%) precisely because DDA traversal has many
+degenerate-input guards. The ones that encode a *choice* (tie-break order, inclusive reach,
+the entry guards) are now pinned with explicit golden cases, lifting it to ~92%; the
+remainder above are the survivors that no test can kill because nothing observes them.
 
 ## Static data: `blocks.ts` and `ignoreStatic`
 
