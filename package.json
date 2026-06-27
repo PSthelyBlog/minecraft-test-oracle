@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "mutation": "stryker run",
+    "mutation:clean": "node scripts/mutation-clean.mjs",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

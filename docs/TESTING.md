@@ -10,9 +10,10 @@ proves those oracles actually catch bugs.
 ```bash
 npm test            # run all 81 oracle tests once (Vitest)
 npm run test:watch  # watch mode
-npm run mutation    # StrykerJS — mutate the core, report which mutants survive
-npm run smoke       # headless-Chromium boot/render check (start a dev/preview server first)
-npm run typecheck   # tsc --noEmit
+npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
+npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
+npm run smoke          # headless-Chromium boot/render check (start a dev/preview server first)
+npm run typecheck      # tsc --noEmit
 ```
 
 Stack: **Vitest** (runner), **fast-check** (property-based generators), **StrykerJS**
@@ -62,9 +63,33 @@ Treating every survivor as a blind spot during development surfaced real problem
 5. **Coverage gaps.** The Z-axis collision branch and player-movement *direction* (as opposed
    to speed) were never exercised. Fixed with targeted cases.
 
+## The incremental-cache footgun: `mutation` vs `mutation:clean`
+
+`stryker.config.json` sets `"incremental": true` so iterative reruns only re-test the
+mutants your change touched — a big speedup while you iterate. The catch: the incremental
+cache (`reports/stryker-incremental.json`) and sandbox (`.stryker-tmp`) persist between
+runs, so a **second back-to-back `npm run mutation` can reuse cached mutant verdicts and
+overwrite `reports/mutation/mutation.json` with them.** A mutant you just *killed* can then
+show as `Survived` (and vice-versa) — the exact stale-report failure mode mutation testing
+exists to prevent. (Seen for real in #6: a `raycast.ts` mutant reported `Survived` while the
+test provably killed it.) The Stryker CLI in this version accepts no `--incremental false`
+override, so the only fix is to delete the cache first.
+
+So:
+
+- **`npm run mutation`** — fast, incremental. Use while iterating on one module.
+- **`npm run mutation:clean`** — wipes `reports/stryker-incremental.json` + `.stryker-tmp`,
+  then runs Stryker once. Use this for **the authoritative score** — before reading the final
+  table, updating the numbers below, or trusting whether a survivor is real.
+
+CI is unaffected (every run is a clean checkout), so this is a local-DX footgun, not a CI
+correctness bug. `mutation:clean` propagates Stryker's exit code, so it gates on the
+`break: 70` threshold exactly like `mutation`.
+
 ## Current results
 
-Run `npm run mutation` for the live numbers. As of this base implementation:
+Run `npm run mutation:clean` for the authoritative live numbers (see the footgun above for
+why `mutation:clean` and not `mutation`). As of this base implementation:
 
 | Module | Mutation score | Notes |
 |--------|---------------:|-------|
