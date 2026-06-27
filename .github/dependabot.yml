@@ -5,6 +5,9 @@
 # stay as individual PRs so breaking changes get reviewed on their own.
 version: 2
 updates:
+  # NOTE: the npm updater needs the root .npmrc (which pins registry.npmjs.org).
+  # Without it, file-fetching aborts with private_registry_config_not_found for
+  # npm.pkg.github.com and no npm PRs are opened. Don't remove that file.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
