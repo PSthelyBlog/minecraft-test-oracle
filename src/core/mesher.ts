@@ -10,12 +10,14 @@
  */
 
 import type { World } from "./world";
-import { Block, blockDef, isOpaque } from "./blocks";
+import { Block, isOpaque } from "./blocks";
+import { tileIndexFor, uvRectForTile } from "./atlas";
 
 export interface ChunkMesh {
   readonly positions: Float32Array; // xyz per vertex
   readonly normals: Float32Array; // xyz per vertex
-  readonly colors: Float32Array; // rgb per vertex
+  readonly colors: Float32Array; // rgb per vertex — per-face ambient shade (greyscale)
+  readonly uvs: Float32Array; // st per vertex — into the texture atlas
   readonly indices: Uint32Array; // two triangles per quad
   /** Number of quads (visible faces) emitted. */
   readonly faceCount: number;
@@ -66,6 +68,16 @@ const FACES: readonly Face[] = [
  * it. Out-of-bounds neighbours read as Air (visible). A block never culls
  * against itself-type unless that neighbour is opaque.
  */
+/**
+ * UV multipliers for the 4 corners of every face, in the same winding order as
+ * `Face.corners`. (s, t) ∈ {0,1}² selects a corner of the face's atlas tile, so the
+ * quad's corners 0..3 map to (u0,v1), (u1,v1), (u1,v0), (u0,v0). Pinned by the
+ * mesher's golden-UV and per-face UV-census oracles.
+ */
+const FACE_UV: readonly (readonly [number, number])[] = [
+  [0, 1], [1, 1], [1, 0], [0, 0],
+];
+
 export function isFaceVisible(world: World, x: number, y: number, z: number, faceIndex: number): boolean {
   const f = FACES[faceIndex];
   const nx = x + f.normal[0];
@@ -94,6 +106,7 @@ function meshRange(
   const positions: number[] = [];
   const normals: number[] = [];
   const colors: number[] = [];
+  const uvs: number[] = [];
   const indices: number[] = [];
   let faceCount = 0;
 
@@ -102,17 +115,23 @@ function meshRange(
       for (let x = x0; x < x1; x++) {
         const id = world.get(x, y, z);
         if (id === Block.Air) continue;
-        const def = blockDef(id);
 
         for (let fi = 0; fi < FACES.length; fi++) {
           if (!isFaceVisible(world, x, y, z, fi)) continue;
           const f = FACES[fi];
+          const r = uvRectForTile(tileIndexFor(id, fi));
           const baseVertex = positions.length / 3;
 
-          for (const c of f.corners) {
+          for (let k = 0; k < 4; k++) {
+            const c = f.corners[k];
             positions.push(x + c[0], y + c[1], z + c[2]);
             normals.push(f.normal[0], f.normal[1], f.normal[2]);
-            colors.push(def.color[0] * f.shade, def.color[1] * f.shade, def.color[2] * f.shade);
+            // Vertex colour carries only the per-face ambient shade now; the block's
+            // colour comes from the sampled atlas texel (texel × shade).
+            colors.push(f.shade, f.shade, f.shade);
+            // Map the 4 corners (in winding order) onto the tile's 4 UV corners.
+            const [s, t] = FACE_UV[k];
+            uvs.push(r.u0 + s * (r.u1 - r.u0), r.v0 + t * (r.v1 - r.v0));
           }
 
           // Two triangles: (0,1,2) and (0,2,3).
@@ -130,6 +149,7 @@ function meshRange(
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     colors: new Float32Array(colors),
+    uvs: new Float32Array(uvs),
     indices: new Uint32Array(indices),
     faceCount,
   };

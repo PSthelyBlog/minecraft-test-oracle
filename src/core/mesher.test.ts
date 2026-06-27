@@ -10,6 +10,7 @@ import {
   chunksAffectedByEdit,
   type ChunkMesh,
 } from "./mesher";
+import { tileIndexFor, uvRectForTile } from "./atlas";
 
 /**
  * INDEPENDENT oracle for the visible-face count.
@@ -112,6 +113,7 @@ describe("mesher oracle", () => {
     expect(m.positions.length).toBe(m.faceCount * 4 * 3);
     expect(m.normals.length).toBe(m.faceCount * 4 * 3);
     expect(m.colors.length).toBe(m.faceCount * 4 * 3);
+    expect(m.uvs.length).toBe(m.faceCount * 4 * 2); // 2 UV components per vertex
     expect(m.indices.length).toBe(m.faceCount * 6);
     for (let i = 0; i < m.normals.length; i += 3) {
       const mag = Math.abs(m.normals[i]) + Math.abs(m.normals[i + 1]) + Math.abs(m.normals[i + 2]);
@@ -168,6 +170,64 @@ describe("mesher oracle", () => {
     }
     // all six distinct face directions are present
     expect(seenNormals.size).toBe(6);
+  });
+
+  // GOLDEN UVs: pin the exact UVs of one known face. A lone Stone block's +X face
+  // must carry the Stone tile's rect, walked in the FACE_UV winding order
+  // (u0,v1),(u1,v1),(u1,v0),(u0,v0). This nails the corner→UV convention so a
+  // transposed or flipped mapping is loud.
+  test("golden: a known face carries its tile's UVs in winding order", () => {
+    const w = new World(3, 3, 3);
+    w.set(1, 1, 1, Block.Stone);
+    const m = buildMesh(w);
+    // find the +X face (normal [1,0,0])
+    let fx = -1;
+    for (let f = 0; f < m.faceCount; f++) if (m.normals[f * 4 * 3] === 1) fx = f;
+    expect(fx).toBeGreaterThanOrEqual(0);
+    const r = uvRectForTile(tileIndexFor(Block.Stone, 0)); // face 0 = +X
+    const base = fx * 4 * 2;
+    expect(Array.from(m.uvs.slice(base, base + 8))).toEqual([
+      r.u0, r.v1, r.u1, r.v1, r.u1, r.v0, r.u0, r.v0,
+    ]);
+  });
+
+  // CENSUS over UVs: for EVERY emitted face, its 4 UV pairs must equal the rect of
+  // the tile that face's block selects — re-derived independently from (block, face)
+  // via the atlas. Catches a face sampling the wrong tile, or UVs leaking outside the
+  // tile, across a mixed world (grass/log have per-face tiles; this exercises them).
+  test("census: every face's UVs equal its (block,face) tile rect", () => {
+    const id = fc.constantFrom(
+      Block.Air, Block.Stone, Block.Grass, Block.Log, Block.Glass, Block.Leaves, Block.Sand,
+    );
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 27, maxLength: 27 }), (cells) => {
+        const w = new World(3, 3, 3);
+        cells.forEach((b, i) => (w.data[i] = b));
+        const m = buildMesh(w);
+        // Independently recover, per face, which block+face emitted it: the face's
+        // single non-air cell is the block at floor(position) on the inner side.
+        for (let f = 0; f < m.faceCount; f++) {
+          const p = f * 4 * 3, n = f * 4 * 3;
+          const nx = m.normals[n], ny = m.normals[n + 1], nz = m.normals[n + 2];
+          // map normal → faceIndex (0=+X,1=−X,2=+Y,3=−Y,4=+Z,5=−Z)
+          const fi = nx === 1 ? 0 : nx === -1 ? 1 : ny === 1 ? 2 : ny === -1 ? 3 : nz === 1 ? 4 : 5;
+          // the owning cell = a corner minus the half-step toward the outward normal,
+          // i.e. the integer cell on the inner side of this face.
+          const cx = Math.floor((m.positions[p] + m.positions[p + 6]) / 2 - nx * 0.5);
+          const cy = Math.floor((m.positions[p + 1] + m.positions[p + 7]) / 2 - ny * 0.5);
+          const cz = Math.floor((m.positions[p + 2] + m.positions[p + 8]) / 2 - nz * 0.5);
+          const block = w.get(cx, cy, cz);
+          const r = uvRectForTile(tileIndexFor(block, fi));
+          const us: number[] = [], vs: number[] = [];
+          for (let k = 0; k < 4; k++) { us.push(m.uvs[f * 8 + k * 2]); vs.push(m.uvs[f * 8 + k * 2 + 1]); }
+          for (const u of us) expect(u === r.u0 || u === r.u1).toBe(true);
+          for (const v of vs) expect(v === r.v0 || v === r.v1).toBe(true);
+          // all four distinct corners of the tile are present (a real quad, not collapsed)
+          expect(new Set(us.map((u, i) => `${u},${vs[i]}`)).size).toBe(4);
+        }
+      }),
+      { numRuns: 200 },
+    );
   });
 
   // GOLDEN: top face is brighter than the bottom face (the ambient shade ramp).

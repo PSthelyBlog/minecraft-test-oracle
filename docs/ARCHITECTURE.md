@@ -55,6 +55,8 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   heightmap, vertical layering.
 - **`physics.ts`** — AABB-vs-voxel collision: `boxIntersectsSolid` (overlap test) and
   `moveAndCollide` (per-axis swept resolution).
+- **`atlas.ts`** — texture-atlas layout: `tileIndexFor(block, face)` (per-face tile choice)
+  and `uvRectForTile(t)` (tile → UV rect). Pure layout math, no Three.js.
 - **`selfcheck.ts`** — `selfCheck()` re-derives the cheapest invariants at boot and throws
   if any is broken.
 
@@ -68,6 +70,8 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   `BufferGeometry`. The only file that touches both the core and Three.js geometry.
 - **`render/chunkedTerrain.ts`** — a `Group` of per-chunk meshes with `rebuildAround(x,y,z)`;
   thin wiring over the core's `buildChunkMesh` / `chunksAffectedByEdit`.
+- **`render/atlasTexture.ts`** — generates the block atlas as a procedural `DataTexture` from
+  `core/atlas`'s `TILE_COLOR` (deterministic grain + bevel, `NearestFilter`).
 - **`main.ts`** — scene/camera/lights, the start overlay + pointer lock, keyboard/mouse
   input, the hotbar + HUD, block break/place, and the `requestAnimationFrame` loop.
 
@@ -118,16 +122,20 @@ locked). Clicks call break/place.
 
 ```
 World (Uint8Array)
-  └─ buildChunkMesh(cx,cy,cz)   per-chunk face culling → ChunkMesh { positions, normals, colors, indices, faceCount }
-       └─ geometryFromMesh()        typed arrays → THREE.BufferGeometry
-            └─ ChunkedTerrain.group  one Mesh per non-empty chunk (MeshLambertMaterial { vertexColors: true })
+  └─ buildChunkMesh(cx,cy,cz)   per-chunk face culling → ChunkMesh { positions, normals, colors, uvs, indices, faceCount }
+       └─ geometryFromMesh()        typed arrays → THREE.BufferGeometry (position/normal/color/uv)
+            └─ ChunkedTerrain.group  one Mesh per non-empty chunk
+                 └─ MeshLambertMaterial { map: atlas, vertexColors: true }
 ```
 
 - The world is meshed as a grid of fixed **chunks** (`CHUNK_SIZE = 16`). `buildChunkMesh`
   culls each chunk against the **full** world, so seams are correct; the chunks reassemble
   into the exact whole-world mesh (`buildMesh` is the whole-world case of the same code).
-- Colors are **per-vertex** (`blocks.color` × a per-face ambient `shade`: top brightest at
-  `1.0`, bottom darkest at `0.5`). This gives the flat-shaded Classic look with no textures.
+- Blocks are **textured** from a procedural atlas: the mesher emits per-face `uvs` into a
+  tile chosen by `core/atlas.tileIndexFor` (grass top/side/bottom, log end-grain), and
+  `render/atlasTexture` paints the `DataTexture`. The per-vertex `colors` now carry only the
+  per-face ambient `shade` (top `1.0` … bottom `0.5`), so the look is `texel × shade ×
+  lighting` — the flat-shaded Classic style, now textured.
 - Lighting is a `HemisphereLight` + a soft `DirectionalLight`; a `Fog` matching the sky
   colour fades the far edge of the world.
 
