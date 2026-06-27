@@ -104,3 +104,9 @@ mutants with the Vitest runner).
 - `/oracle-doctor` — verified wiring and the paired-oracle convention (10/11 modules; the
   11th is the browser entry shell, covered by the smoke test).
 - `npm run mutation` (`/oracle-audit`) — the falsifiability proof above.
+
+## License
+
+[MIT](LICENSE) © 2026 PSthelyBlog. This is a fan project inspired by Minecraft Classic; the
+MIT license covers this repository's own code and is not affiliated with or endorsed by
+Mojang or Microsoft.

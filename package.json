@@ -2,6 +2,7 @@
   "name": "minecraft-classic-clone",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "A Minecraft Classic (2009) clone with a falsifiable test-oracle suite over the voxel core",
   "scripts": {
