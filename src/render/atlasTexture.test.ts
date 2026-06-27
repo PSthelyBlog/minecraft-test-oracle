@@ -57,7 +57,7 @@ describe("atlasTexture oracle", () => {
   test("the texture is the full atlas size and uses crisp (nearest) filtering", () => {
     const tex = buildAtlasTexture(8);
     expect(tex.image.width).toBe(ATLAS_COLS * 8);
-    expect(tex.image.data.length).toBe(tex.image.width * tex.image.height * 4);
+    expect((tex.image.data as Uint8Array).length).toBe(tex.image.width * tex.image.height * 4);
     expect(tex.magFilter).toBeDefined();
   });
 });

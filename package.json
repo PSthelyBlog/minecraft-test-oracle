@@ -20,13 +20,13 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
-    "three": "^0.169.0"
+    "three": "^0.185.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@types/three": "^0.169.0",
+    "@types/three": "^0.185.0",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.8.0",
