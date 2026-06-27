@@ -1,0 +1,28 @@
+# Weekly dependency updates. Safe to automate here because every PR must clear the
+# full CI gate — the StrykerJS falsifiability gate and the headless smoke render
+# check catch behavioural regressions a bump might introduce, not just type errors.
+# Minor + patch bumps are grouped into one PR per ecosystem to cut noise; majors
+# stay as individual PRs so breaking changes get reviewed on their own.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
