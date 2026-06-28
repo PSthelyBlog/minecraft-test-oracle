@@ -357,6 +357,181 @@ export function buildChunkMesh(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Greedy meshing — merge coplanar, adjacent, same-tile, uniformly-lit faces into
+// larger quads, so a flat region becomes a few big quads instead of one per cell.
+//
+// A face is "mergeable" only when its four AO corners are EQUAL (uniform lighting):
+// merging across an AO gradient would lose the per-corner shading the GPU can only
+// interpolate, so faces whose AO varies are emitted 1×1 with their exact per-corner
+// AO (just like the naive mesher) and never merged. Mergeable faces sharing the same
+// (tile/layer, AO level) on a slice merge into maximal rectangles.
+//
+// The merged quad's tile-local UVs run 0..w and 0..h, so the tile REPEATS once per
+// cell (the texture-array layer is RepeatWrapped) — this is what the Phase-A texture
+// array unblocked. Coverage is identical to the naive mesher: every visible unit face
+// is emitted exactly once, just grouped — pinned by the area-conservation census.
+// ---------------------------------------------------------------------------
+
+function meshRangeGreedy(
+  world: World,
+  x0: number,
+  y0: number,
+  z0: number,
+  x1: number,
+  y1: number,
+  z1: number,
+): ChunkMesh {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const colors: number[] = [];
+  const uvs: number[] = [];
+  const layers: number[] = [];
+  const indices: number[] = [];
+  let faceCount = 0;
+  const lo = [x0, y0, z0];
+  const hi = [x1, y1, z1];
+
+  for (let d = 0; d < FACES.length; d++) {
+    const f = FACES[d];
+    const aAxis = f.normal[0] !== 0 ? 0 : f.normal[1] !== 0 ? 1 : 2;
+    const [u, v] = aAxis === 0 ? [1, 2] : aAxis === 1 ? [0, 2] : [0, 1];
+    // The tangent axis the UV's s-component advances along (where corner1 differs
+    // from corner0); the other tangent carries t. Lets a w×h merge scale s,t correctly.
+    const sAxis =
+      f.corners[1][0] !== f.corners[0][0] ? 0 : f.corners[1][1] !== f.corners[0][1] ? 1 : 2;
+    const U = hi[u] - lo[u];
+    const V = hi[v] - lo[v];
+    const A = hi[aAxis] - lo[aAxis];
+
+    // Emit one quad covering w×h cells from base cell B (world coords), with the four
+    // per-corner AO `levels` (all equal for a merged quad; the real four for a 1×1).
+    const emit = (B: number[], w: number, h: number, levels: number[], layer: number): void => {
+      const sExtent = sAxis === u ? w : h;
+      const tExtent = sAxis === u ? h : w;
+      const base = positions.length / 3;
+      for (let k = 0; k < 4; k++) {
+        const c = f.corners[k];
+        const p = [0, 0, 0];
+        p[aAxis] = B[aAxis] + c[aAxis];
+        p[u] = B[u] + (c[u] ? w : 0);
+        p[v] = B[v] + (c[v] ? h : 0);
+        positions.push(p[0], p[1], p[2]);
+        normals.push(f.normal[0], f.normal[1], f.normal[2]);
+        const shade = f.shade * aoFactor(levels[k]);
+        colors.push(shade, shade, shade);
+        uvs.push(FACE_UV[k][0] * sExtent, FACE_UV[k][1] * tExtent);
+        layers.push(layer);
+      }
+      // Same brighter-diagonal split as the naive mesher (a no-op for a uniform merge,
+      // where both diagonals are equal, so it takes the default 0–2 split).
+      if (levels[0] + levels[2] < levels[1] + levels[3]) {
+        indices.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
+      } else {
+        indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+      faceCount++;
+    };
+
+    for (let sa = 0; sa < A; sa++) {
+      // Build the mergeable-face mask for this slice; emit non-uniform faces 1×1 now.
+      const key: (string | null)[] = new Array(U * V).fill(null);
+      const keyLevel: number[] = new Array(U * V);
+      const keyLayer: number[] = new Array(U * V);
+      for (let sv = 0; sv < V; sv++) {
+        for (let su = 0; su < U; su++) {
+          const cell = [0, 0, 0];
+          cell[aAxis] = lo[aAxis] + sa;
+          cell[u] = lo[u] + su;
+          cell[v] = lo[v] + sv;
+          const id = world.get(cell[0], cell[1], cell[2]);
+          if (id === Block.Air) continue;
+          if (!isFaceVisible(world, cell[0], cell[1], cell[2], d)) continue;
+          const levels = [0, 0, 0, 0];
+          for (let k = 0; k < 4; k++)
+            levels[k] = cornerAO(world, cell[0], cell[1], cell[2], f, f.corners[k]);
+          const layer = tileIndexFor(id, d);
+          if (levels[0] === levels[1] && levels[1] === levels[2] && levels[2] === levels[3]) {
+            const idx = su + U * sv;
+            key[idx] = `${layer},${levels[0]}`;
+            keyLevel[idx] = levels[0];
+            keyLayer[idx] = layer;
+          } else {
+            emit(cell, 1, 1, levels, layer);
+          }
+        }
+      }
+      // Greedy maximal-rectangle extraction over the mask.
+      const used = new Array(U * V).fill(false);
+      for (let sv = 0; sv < V; sv++) {
+        for (let su = 0; su < U; su++) {
+          const idx = su + U * sv;
+          if (key[idx] === null || used[idx]) continue;
+          let w = 1;
+          while (su + w < U && key[idx + w] === key[idx] && !used[idx + w]) w++;
+          let h = 1;
+          grow: while (sv + h < V) {
+            for (let k = 0; k < w; k++) {
+              const j = su + k + U * (sv + h);
+              if (key[j] !== key[idx] || used[j]) break grow;
+            }
+            h++;
+          }
+          for (let hh = 0; hh < h; hh++)
+            for (let ww = 0; ww < w; ww++) used[su + ww + U * (sv + hh)] = true;
+          const B = [0, 0, 0];
+          B[aAxis] = lo[aAxis] + sa;
+          B[u] = lo[u] + su;
+          B[v] = lo[v] + sv;
+          const L = keyLevel[idx];
+          emit(B, w, h, [L, L, L, L], keyLayer[idx]);
+        }
+      }
+    }
+  }
+
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    colors: new Float32Array(colors),
+    uvs: new Float32Array(uvs),
+    layers: new Float32Array(layers),
+    indices: new Uint32Array(indices),
+    faceCount,
+  };
+}
+
+/** Greedy-mesh the whole world in one geometry (the merged counterpart of `buildMesh`). */
+export function buildGreedyMesh(world: World): ChunkMesh {
+  return meshRangeGreedy(world, 0, 0, 0, world.sizeX, world.sizeY, world.sizeZ);
+}
+
+/**
+ * Greedy-mesh a single chunk (the merged counterpart of `buildChunkMesh`). Merges
+ * only within the chunk's own cells but culls + samples AO against the full world,
+ * so seams stay correct and the per-chunk union still covers every visible unit face.
+ */
+export function buildGreedyChunkMesh(
+  world: World,
+  cx: number,
+  cy: number,
+  cz: number,
+  chunkSize: number = CHUNK_SIZE,
+): ChunkMesh {
+  const x0 = cx * chunkSize;
+  const y0 = cy * chunkSize;
+  const z0 = cz * chunkSize;
+  return meshRangeGreedy(
+    world,
+    x0,
+    y0,
+    z0,
+    Math.min(x0 + chunkSize, world.sizeX),
+    Math.min(y0 + chunkSize, world.sizeY),
+    Math.min(z0 + chunkSize, world.sizeZ),
+  );
+}
+
 /**
  * The chunks whose mesh can change when the block at (x, y, z) is edited: the
  * cell's own chunk, plus the chunk of each of its 6 axis-neighbours (which

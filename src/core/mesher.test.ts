@@ -7,6 +7,8 @@ import {
   isFaceVisible,
   vertexAO,
   buildChunkMesh,
+  buildGreedyMesh,
+  buildGreedyChunkMesh,
   chunkDims,
   chunksAffectedByEdit,
   type ChunkMesh,
@@ -671,6 +673,365 @@ describe("chunked meshing oracle", () => {
         },
       ),
       { numRuns: 200 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Greedy meshing: merge coplanar, same-tile, uniformly-lit faces into bigger quads.
+// The contract is COVERAGE-EXACT — the set of unit faces a greedy mesh decomposes
+// into must equal the visible-face definition, EXACTLY (no overlaps, gaps, or
+// strays) — while emitting strictly fewer quads where it can merge. All oracles
+// below re-derive the expected geometry/tile/AO INDEPENDENTLY of the greedy code.
+// ---------------------------------------------------------------------------
+
+// face direction (0=+X,1=−X,2=+Y,3=−Y,4=+Z,5=−Z) → face axis + the two tangent axes.
+function faceAxes(d: number): { a: number; u: number; v: number } {
+  const a = d < 2 ? 0 : d < 4 ? 1 : 2;
+  const [u, v] = a === 0 ? [1, 2] : a === 1 ? [0, 2] : [0, 1];
+  return { a, u, v };
+}
+
+const quadNormal = (m: ChunkMesh, f: number): number[] => [
+  m.normals[f * 12],
+  m.normals[f * 12 + 1],
+  m.normals[f * 12 + 2],
+];
+const quadCorner = (m: ChunkMesh, f: number, k: number): number[] => [
+  m.positions[(f * 4 + k) * 3],
+  m.positions[(f * 4 + k) * 3 + 1],
+  m.positions[(f * 4 + k) * 3 + 2],
+];
+
+/**
+ * Decompose a mesh's quads into the multiset of UNIT faces they cover, each keyed by
+ * `cellX,cellY,cellZ,faceDir`. A merged w×h quad expands to its w·h unit faces; a 1×1
+ * quad to one. Independent of how the mesh chose to group them.
+ */
+function unitFacesOf(m: ChunkMesh): string[] {
+  const keys: string[] = [];
+  for (let f = 0; f < m.faceCount; f++) {
+    const n = quadNormal(m, f);
+    const d = faceIndexFromNormal(n[0], n[1], n[2]);
+    const { a, u, v } = faceAxes(d);
+    const cs = [0, 1, 2, 3].map((k) => quadCorner(m, f, k));
+    const planeA = cs[0][a];
+    const us = cs.map((c) => c[u]);
+    const vs = cs.map((c) => c[v]);
+    const umin = Math.min(...us),
+      vmin = Math.min(...vs);
+    const w = Math.max(...us) - umin,
+      h = Math.max(...vs) - vmin;
+    for (let i = 0; i < w; i++)
+      for (let j = 0; j < h; j++) {
+        const cell = [0, 0, 0];
+        cell[a] = planeA - (n[a] > 0 ? 1 : 0); // the cell on the inner side of the face
+        cell[u] = umin + i;
+        cell[v] = vmin + j;
+        keys.push(`${cell[0]},${cell[1]},${cell[2]},${d}`);
+      }
+  }
+  return keys;
+}
+
+/** The expected visible unit faces, straight from the culling definition (no mesher). */
+function expectedUnitFaces(w: World): string[] {
+  const dirs = [
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 1, 0],
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+  ];
+  const keys: string[] = [];
+  for (let y = 0; y < w.sizeY; y++)
+    for (let z = 0; z < w.sizeZ; z++)
+      for (let x = 0; x < w.sizeX; x++) {
+        if (w.get(x, y, z) === Block.Air) continue;
+        for (let d = 0; d < 6; d++) {
+          const [dx, dy, dz] = dirs[d];
+          if (!isOpaque(w.get(x + dx, y + dy, z + dz))) keys.push(`${x},${y},${z},${d}`);
+        }
+      }
+  return keys;
+}
+
+describe("greedy meshing oracle", () => {
+  // AREA-CONSERVATION CENSUS (headline): the unit faces a greedy mesh covers equal the
+  // visible-face definition EXACTLY — same multiset, so no face is dropped, doubled, or
+  // invented by merging. Re-derived from the culling rule, independent of either mesher.
+  test("census: greedy quads cover exactly the visible unit faces (no overlap/gap/stray)", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves, Block.Grass);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
+        const w = new World(4, 4, 4);
+        cells.forEach((b, i) => (w.data[i] = b));
+        expect(unitFacesOf(buildGreedyMesh(w)).sort()).toEqual(expectedUnitFaces(w).sort());
+      }),
+      { numRuns: 250 },
+    );
+  });
+
+  // CENSUS over chunks: the per-chunk greedy meshes also cover exactly the visible
+  // unit faces (merging is bounded to a chunk, but no seam face is lost or doubled).
+  test("census: the per-chunk greedy union covers exactly the visible unit faces", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves);
+    fc.assert(
+      fc.property(
+        fc.array(id, { minLength: 125, maxLength: 125 }),
+        fc.constantFrom(2, 3, 4),
+        (cells, chunkSize) => {
+          const w = new World(5, 5, 5);
+          cells.forEach((b, i) => (w.data[i] = b));
+          const { nx, ny, nz } = chunkDims(w, chunkSize);
+          const keys: string[] = [];
+          for (let cy = 0; cy < ny; cy++)
+            for (let cz = 0; cz < nz; cz++)
+              for (let cx = 0; cx < nx; cx++)
+                keys.push(...unitFacesOf(buildGreedyChunkMesh(w, cx, cy, cz, chunkSize)));
+          expect(keys.sort()).toEqual(expectedUnitFaces(w).sort());
+        },
+      ),
+      { numRuns: 150 },
+    );
+  });
+
+  // MERGING ACTUALLY HAPPENED (the area census alone passes a non-merging mesher): a
+  // solid n³ cube in air has every shell face uniformly lit (AO 3), so each of its 6
+  // sides merges to ONE quad — 6 quads total, vs 6·n² for the naive mesher.
+  test("golden: a solid cube merges each face to one quad (6 quads, not 6n²)", () => {
+    const n = 4;
+    const w = new World(n + 2, n + 2, n + 2);
+    for (let y = 1; y <= n; y++)
+      for (let z = 1; z <= n; z++) for (let x = 1; x <= n; x++) w.set(x, y, z, Block.Stone);
+    expect(buildMesh(w).faceCount).toBe(6 * n * n); // naive: one quad per unit face
+    expect(buildGreedyMesh(w).faceCount).toBe(6); // greedy: one quad per cube face
+  });
+
+  // GOLDEN (non-square merge + UV orientation): a 1×3 strip's exposed top merges to a
+  // single 1-wide (X) × 3-deep (Z) quad whose tile-local UVs span 1 along the X-mapped
+  // axis and 3 along the Z-mapped axis — so each of the 3 cells shows one full tile,
+  // oriented correctly. A swapped s/t→axis assignment would tile 3×1 here and is loud.
+  test("golden: a 1×3 strip merges to one quad whose UVs tile 1×3 in the right orientation", () => {
+    const w = new World(5, 3, 5);
+    for (let z = 1; z <= 3; z++) w.set(2, 1, z, Block.Stone); // 1 (X) × 3 (Z) strip
+    const m = buildGreedyMesh(w);
+    const tops: number[] = [];
+    for (let f = 0; f < m.faceCount; f++) if (m.normals[f * 12 + 1] === 1) tops.push(f);
+    expect(tops.length).toBe(1); // the three tops (uniform AO) merge to one quad
+    const f = tops[0];
+    const cs = [0, 1, 2, 3].map((k) => quadCorner(m, f, k));
+    expect(Math.max(...cs.map((c) => c[0])) - Math.min(...cs.map((c) => c[0]))).toBe(1); // 1 wide in X
+    expect(Math.max(...cs.map((c) => c[2])) - Math.min(...cs.map((c) => c[2]))).toBe(3); // 3 deep in Z
+    const uvSet = new Set(
+      [0, 1, 2, 3].map((k) => `${m.uvs[(f * 4 + k) * 2]},${m.uvs[(f * 4 + k) * 2 + 1]}`),
+    );
+    // +Y: s tracks X (extent 1), t tracks Z (extent 3)
+    expect(uvSet).toEqual(new Set(["0,0", "1,0", "0,3", "1,3"]));
+  });
+
+  // STRUCTURAL: 4 verts / 2 uv / 1 layer / 6 indices per quad, unit-axis normals — over
+  // a mixed world so merged and 1×1 quads both occur.
+  test("buffers stay consistent and normals are unit axes", () => {
+    const w = new World(5, 5, 5);
+    for (let z = 1; z <= 3; z++) for (let x = 1; x <= 3; x++) w.set(x, 1, z, Block.Grass); // a slab → merges
+    w.set(2, 3, 2, Block.Glass); // a lone block → 1×1 quads
+    const m = buildGreedyMesh(w);
+    expect(m.positions.length).toBe(m.faceCount * 12);
+    expect(m.normals.length).toBe(m.faceCount * 12);
+    expect(m.colors.length).toBe(m.faceCount * 12);
+    expect(m.uvs.length).toBe(m.faceCount * 8);
+    expect(m.layers.length).toBe(m.faceCount * 4);
+    expect(m.indices.length).toBe(m.faceCount * 6);
+    for (let i = 0; i < m.normals.length; i += 3) {
+      const mag = Math.abs(m.normals[i]) + Math.abs(m.normals[i + 1]) + Math.abs(m.normals[i + 2]);
+      expect(mag).toBe(1);
+    }
+    for (const idx of m.indices) expect(idx).toBeLessThan(m.positions.length / 3);
+  });
+
+  // TILE/UV CENSUS: every greedy quad samples ONE tile (= layer) and tiles it once per
+  // cell. The UV corners are {0,M}×{0,N} with M·N == w·h (a unit tile per covered cell,
+  // not one stretched tile), and the layer equals `tileIndexFor` for every owning cell.
+  test("census: every greedy quad tiles its layer once per cell and uses the right tile", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Grass, Block.Log, Block.Sand);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
+        const w = new World(4, 4, 4);
+        cells.forEach((b, i) => (w.data[i] = b));
+        const m = buildGreedyMesh(w);
+        for (let f = 0; f < m.faceCount; f++) {
+          const n = quadNormal(m, f);
+          const d = faceIndexFromNormal(n[0], n[1], n[2]);
+          const { a, u, v } = faceAxes(d);
+          const cs = [0, 1, 2, 3].map((k) => quadCorner(m, f, k));
+          const umin = Math.min(...cs.map((c) => c[u]));
+          const vmin = Math.min(...cs.map((c) => c[v]));
+          const wq = Math.max(...cs.map((c) => c[u])) - umin;
+          const hq = Math.max(...cs.map((c) => c[v])) - vmin;
+          const planeA = cs[0][a];
+
+          const uvc = [0, 1, 2, 3].map((k) => [m.uvs[(f * 4 + k) * 2], m.uvs[(f * 4 + k) * 2 + 1]]);
+          const M = Math.max(...uvc.map((p) => p[0]));
+          const N = Math.max(...uvc.map((p) => p[1]));
+          expect(Number.isInteger(M) && M >= 1).toBe(true);
+          expect(Number.isInteger(N) && N >= 1).toBe(true);
+          expect(M * N).toBe(wq * hq); // one unit tile per covered cell
+          expect(new Set(uvc.map((p) => `${p[0]},${p[1]}`))).toEqual(
+            new Set([`0,0`, `${M},0`, `0,${N}`, `${M},${N}`]),
+          );
+
+          // Per-cell UV step: each covered cell must map to a FULL unit tile, oriented
+          // right — moving one cell along a tangent advances the UV by exactly one unit
+          // along ONE uv axis (not a stretched/rotated step). This pins the s/t→axis
+          // assignment that `M·N == w·h` alone can't see (a swap mis-tiles a non-square
+          // merge while keeping the area product).
+          const uvAt = (cu: number, cv: number): number[] =>
+            uvc[cs.findIndex((c) => c[u] === cu && c[v] === cv)];
+          const uv00 = uvAt(umin, vmin);
+          const stepU = [
+            (uvAt(umin + wq, vmin)[0] - uv00[0]) / wq,
+            (uvAt(umin + wq, vmin)[1] - uv00[1]) / wq,
+          ];
+          const stepV = [
+            (uvAt(umin, vmin + hq)[0] - uv00[0]) / hq,
+            (uvAt(umin, vmin + hq)[1] - uv00[1]) / hq,
+          ];
+          const isUnitAxis = (s: number[]): boolean =>
+            (Math.abs(s[0]) === 1 && s[1] === 0) || (s[0] === 0 && Math.abs(s[1]) === 1);
+          expect(isUnitAxis(stepU)).toBe(true);
+          expect(isUnitAxis(stepV)).toBe(true);
+          expect(Math.abs(stepU[0])).not.toBe(Math.abs(stepV[0])); // the two steps use different uv axes
+
+          const layer = m.layers[f * 4];
+          for (let k = 0; k < 4; k++) expect(m.layers[f * 4 + k]).toBe(layer);
+          for (let i = 0; i < wq; i++)
+            for (let j = 0; j < hq; j++) {
+              const cell = [0, 0, 0];
+              cell[a] = planeA - (n[a] > 0 ? 1 : 0);
+              cell[u] = umin + i;
+              cell[v] = vmin + j;
+              expect(tileIndexFor(w.get(cell[0], cell[1], cell[2]), d)).toBe(layer);
+            }
+        }
+      }),
+      { numRuns: 150 },
+    );
+  });
+
+  // AO CENSUS: every greedy quad reproduces the independently re-derived ambient
+  // occlusion of each cell it covers. A quad's four vertex shades (a multiset) must
+  // equal each owning cell's four corner shades — so a MERGED quad can only span cells
+  // that are uniformly lit at the SAME level (never merged across an AO seam), while a
+  // 1×1 quad keeps its exact per-corner AO. Shares no code with the mesher's AO path.
+  test("census: every greedy quad reproduces each covered cell's ambient occlusion", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Grass, Block.Glass, Block.Leaves);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
+        const w = new World(4, 4, 4);
+        cells.forEach((b, i) => (w.data[i] = b));
+        const m = buildGreedyMesh(w);
+        for (let f = 0; f < m.faceCount; f++) {
+          const n = quadNormal(m, f);
+          const d = faceIndexFromNormal(n[0], n[1], n[2]);
+          const { a, u, v } = faceAxes(d);
+          const cs = [0, 1, 2, 3].map((k) => quadCorner(m, f, k));
+          const umin = Math.min(...cs.map((c) => c[u]));
+          const vmin = Math.min(...cs.map((c) => c[v]));
+          const wq = Math.max(...cs.map((c) => c[u])) - umin;
+          const hq = Math.max(...cs.map((c) => c[v])) - vmin;
+          const planeA = cs[0][a];
+
+          // the quad's four vertex shades (greyscale), as a sorted multiset
+          const quadShades = [0, 1, 2, 3].map((k) => m.colors[(f * 4 + k) * 3]).sort();
+          for (let k = 0; k < 4; k++) {
+            expect(m.colors[(f * 4 + k) * 3]).toBe(m.colors[(f * 4 + k) * 3 + 1]); // greyscale
+            expect(m.colors[(f * 4 + k) * 3 + 1]).toBe(m.colors[(f * 4 + k) * 3 + 2]);
+          }
+
+          // The triangle split must follow the brighter-diagonal rule: default 0–2, flip
+          // to 1–3 when that pair is brighter. We recover each corner's INTEGER AO level
+          // from its shade (`shade = FACE_SHADE · aoBrightness(level)`) and compare the
+          // integer diagonal sums — comparing the Float32 shades directly would mis-rank
+          // an exact tie (e.g. 0+3 vs 1+2). Winding alone can't see the split; this pins
+          // it for the non-uniform 1×1 quads (a uniform merge always takes the default).
+          const lvl = (k: number): number =>
+            Math.round((m.colors[(f * 4 + k) * 3] / FACE_SHADE[d] - 0.5) * 6);
+          const bv = f * 4;
+          const expectedIdx =
+            lvl(0) + lvl(2) < lvl(1) + lvl(3)
+              ? [bv + 1, bv + 2, bv + 3, bv + 1, bv + 3, bv]
+              : [bv, bv + 1, bv + 2, bv, bv + 2, bv + 3];
+          expect(Array.from(m.indices.slice(f * 6, f * 6 + 6))).toEqual(expectedIdx);
+
+          for (let i = 0; i < wq; i++)
+            for (let j = 0; j < hq; j++) {
+              const cell = [0, 0, 0];
+              cell[a] = planeA - (n[a] > 0 ? 1 : 0);
+              cell[u] = umin + i;
+              cell[v] = vmin + j;
+              const base = [cell[0] + n[0], cell[1] + n[1], cell[2] + n[2]]; // open neighbour layer
+              const occ = (ou: number, ov: number): number => {
+                const o = [0, 0, 0];
+                o[u] = ou;
+                o[v] = ov;
+                return isOpaque(w.get(base[0] + o[0], base[1] + o[1], base[2] + o[2])) ? 1 : 0;
+              };
+              // the cell's four corner AO levels: every (±u, ±v) combination
+              const cellShades: number[] = [];
+              for (const su of [1, -1])
+                for (const sv of [1, -1]) {
+                  const s1 = occ(su, 0),
+                    s2 = occ(0, sv),
+                    cc = occ(su, sv);
+                  const level = s1 && s2 ? 0 : 3 - (s1 + s2 + cc);
+                  cellShades.push(FACE_SHADE[d] * aoBrightness(level));
+                }
+              // the quad must reproduce this cell's shading exactly (so a merge only
+              // spans equally-lit cells; a 1×1 quad matches its single cell's corners)
+              cellShades.sort();
+              for (let q = 0; q < 4; q++) expect(quadShades[q]).toBeCloseTo(cellShades[q], 6);
+            }
+        }
+      }),
+      { numRuns: 120 },
+    );
+  });
+
+  // WINDING: both triangles of every greedy quad (merged or 1×1) wind outward — the
+  // merged rectangle must not invert a face.
+  test("both triangles of every greedy quad wind outward", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Grass, Block.Leaves);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
+        const w = new World(4, 4, 4);
+        cells.forEach((b, i) => (w.data[i] = b));
+        const m = buildGreedyMesh(w);
+        for (let f = 0; f < m.faceCount; f++) {
+          const normal = quadNormal(m, f);
+          const vert = (idx: number): number[] => [
+            m.positions[idx * 3],
+            m.positions[idx * 3 + 1],
+            m.positions[idx * 3 + 2],
+          ];
+          for (let tri = 0; tri < 2; tri++) {
+            const aa = vert(m.indices[f * 6 + tri * 3]);
+            const bb = vert(m.indices[f * 6 + tri * 3 + 1]);
+            const cc = vert(m.indices[f * 6 + tri * 3 + 2]);
+            const e1 = [bb[0] - aa[0], bb[1] - aa[1], bb[2] - aa[2]];
+            const e2 = [cc[0] - aa[0], cc[1] - aa[1], cc[2] - aa[2]];
+            const cross = [
+              e1[1] * e2[2] - e1[2] * e2[1],
+              e1[2] * e2[0] - e1[0] * e2[2],
+              e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            const dot = cross[0] * normal[0] + cross[1] * normal[1] + cross[2] * normal[2];
+            expect(dot).toBeGreaterThan(0);
+          }
+        }
+      }),
+      { numRuns: 60 },
     );
   });
 });

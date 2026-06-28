@@ -52,6 +52,9 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
 - **`mesher.ts`** — turns a `World` into geometry, emitting only the faces a neighbour
   doesn't hide (face culling). `buildMesh` does the whole world; `buildChunkMesh` does one
   fixed chunk (culling across borders) so edits remesh just the affected chunks.
+  `buildGreedyMesh` / `buildGreedyChunkMesh` additionally **merge** coplanar same-tile,
+  uniformly-lit faces into bigger quads (what the renderer draws); `buildMesh` is the
+  independent oracle reference the greedy area-conservation census checks against.
 - **`terrain.ts`** — deterministic seeded terrain (`generateTerrain`), value-noise
   heightmap, vertical layering, and hash-placed Log/Leaves trees on grass.
 - **`persistence.ts`** — save/load: run-length encodes a `World` to a compact binary blob
@@ -131,21 +134,26 @@ locked). Clicks call break/place.
 
 ```
 World (Uint8Array)
-  └─ buildChunkMesh(cx,cy,cz)   per-chunk face culling → ChunkMesh { positions, normals, colors, uvs, layers, indices, faceCount }
+  └─ buildGreedyChunkMesh(cx,cy,cz)  per-chunk culling + greedy merge → ChunkMesh { positions, normals, colors, uvs, layers, indices, faceCount }
        └─ geometryFromMesh()        typed arrays → THREE.BufferGeometry (position/normal/color/uv/layer)
             └─ ChunkedTerrain.group  one Mesh per non-empty chunk
                  └─ terrainMaterial   MeshLambertMaterial sampling a tile ARRAY by per-vertex `layer`
 ```
 
-- The world is meshed as a grid of fixed **chunks** (`CHUNK_SIZE = 16`). `buildChunkMesh`
-  culls each chunk against the **full** world, so seams are correct; the chunks reassemble
-  into the exact whole-world mesh (`buildMesh` is the whole-world case of the same code).
+- The world is meshed as a grid of fixed **chunks** (`CHUNK_SIZE = 16`). The mesher culls each
+  chunk against the **full** world, so seams are correct; the chunks reassemble into the exact
+  whole-world surface (`buildMesh` is the whole-world case of the same culling code).
+- **Greedy meshing:** the renderer uses `buildGreedyChunkMesh`, which merges coplanar, adjacent
+  faces sharing a tile and uniform AO into bigger quads (≈55% fewer quads on the default
+  terrain), with the tile **repeating** once per cell. Coverage is identical to the naive
+  mesher — the area-conservation census proves every visible unit face is still emitted exactly
+  once — so the naive `buildMesh` stays as the independent oracle reference.
 - Blocks are **textured** from a procedural tile **array** (`DataArrayTexture`, one layer per
   tile): the mesher emits tile-local `uvs` plus a per-vertex `layer` = the tile chosen by
   `core/atlas.tileIndexFor` (grass top/side/bottom, log end-grain), `render/atlasTexture`
   paints the layers, and `render/terrainMaterial` redirects Lambert's texture fetch to sample
-  `texture(array, vec3(uv, layer))` (an array, not a 4×4 atlas grid, so a future greedy quad's
-  UV > 1 can repeat its tile cleanly). The per-vertex `colors` carry a greyscale
+  `texture(array, vec3(uv, layer))` (an array, not a 4×4 atlas grid, so a greedy quad's UV > 1
+  repeats its tile cleanly). The per-vertex `colors` carry a greyscale
   `shade` = the per-face directional shade (top `1.0` … bottom `0.5`) **× per-vertex ambient
   occlusion** (corners/crevices darken; `vertexAO`), so the look is `texel × shade ×
 lighting` — the flat-shaded Classic style, now textured and contact-shaded.

@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 101 oracle tests once (Vitest)
+npm test            # run all 109 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -62,6 +62,12 @@ Treating every survivor as a blind spot during development surfaced real problem
    over a **sparse** world.
 5. **Coverage gaps.** The Z-axis collision branch and player-movement _direction_ (as opposed
    to speed) were never exercised. Fixed with targeted cases.
+6. **Greedy-mesh oracle gaps.** When greedy meshing was added, mutation flagged two blind spots
+   the area-conservation census couldn't see: the merged-quad **UV orientation** (a swapped
+   s/t→axis assignment mis-tiles a _non-square_ merge while keeping the area product `M·N`), and
+   the **triangle split** of the non-uniform 1×1 quads (winding is outward either way). Fixed
+   with a per-cell unit-tile check and an independent brighter-diagonal re-derivation — a reminder
+   that a coverage census alone doesn't pin per-quad appearance.
 
 ## The incremental-cache footgun: `mutation` vs `mutation:clean`
 
@@ -120,11 +126,11 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `atlas.ts`       |           100% | per-face tile (layer) selection; `TILE_COLOR` static (injection-proven)           |
 | `physics.ts`     |           ~98% |                                                                                   |
 | `world.ts`       |           ~97% |                                                                                   |
-| `mesher.ts`      |         ~97.5% | incl. chunked meshing + tile-local UV/layer + ambient occlusion; 4 equiv. mutants |
+| `mesher.ts`      |           ~96% | incl. chunked + greedy meshing, tile-local UV/layer, AO; 15 equivalent survivors  |
 | `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate |
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)         |
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)             |
-| **overall**      |     **~95.9%** | 101 tests across 15 files                                                         |
+| **overall**      |     **~95.6%** | 109 tests across 15 files                                                         |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
@@ -198,6 +204,30 @@ document these, not to chase a vanity number. The ones left here:
   so `v ∈ {2,2,1}`), hence `sv[0]` is structurally always `0` and `±sv[0]` is indistinguishable.
   The **Y and Z** components of the same expression are _not_ equivalent (both axes appear as a
   `v`) and the AO census kills them; only this one X mutant survives.
+- **Greedy-mesher survivors (10, all equivalent).** The greedy mesher
+  (`buildGreedyMesh` / `buildGreedyChunkMesh`) is pinned by an **area-conservation census**
+  (its quads decompose to exactly the visible unit faces — no overlap, gap, or stray), a
+  **solid-cube golden** (6 quads, so a no-op "greedy" can't pass), a **tile/UV census** with a
+  per-cell unit-tile check, and an **AO census** that re-derives each covered cell's shading
+  and the brighter-diagonal split. What survives is genuinely equivalent, in classes already
+  seen above:
+  - _the `sAxis` ternary branches_ (`mesher.ts`, `ConditionalExpression → true`/`false` in the
+    `f.corners[1][k] !== f.corners[0][k]` chain): `sAxis` only matters through `sAxis === u`,
+    which decides whether a merged quad's UV `s` scales by `w` or `h`. Across the six faces
+    `sAxis ∈ {0, 2}` while the first tangent `u ∈ {0, 1}`, so forcing these branches never
+    flips `sAxis === u` — the tiling is unchanged. The mutants that _do_ change the s/t→axis
+    assignment are killed by the per-cell unit-tile check (and the `1×3` non-square golden).
+  - _array-initializer overwrites_ (`[0,0,0]`/`[0,0,0,0]` → `[]` for the per-cell `cell`, `B`,
+    and `levels` scratch vectors): every slot is assigned before it is read (the axis triple is
+    a permutation of `{0,1,2}`; the four AO corners are all filled), so the initializer's value
+    is never observed — the same class as the terrain/`world` initializer survivors.
+  - _mask preallocation_ (`new Array(U*V)` → `new Array()` for `key`/`keyLevel`/`keyLayer`/
+    `used`): JS arrays grow on index assignment and an unset slot reads `undefined` (falsy, like
+    the `false`/`null` fill), so dropping the size hint changes nothing — only the entries the
+    greedy walk actually sets are ever read.
+  - _the rectangle-height loop bound_ (`sv + h < V` → `<=` / `sv - h`): redundant with the inner
+    row scan, which breaks as soon as a cell's key differs — and an out-of-slice read is
+    `undefined ≠ key`, so it stops at the same `h` (the mesher/persistence loop-bound class).
 - **`persistence.ts` survivors (6, all equivalent).** Two classes, both already seen elsewhere:
   the **run-extension loop bound** in `encodeWorld` (`j < data.length` → `j <= data.length` / the
   whole condition → `true`) is redundant with the inner `data[j] === value` guard — an
