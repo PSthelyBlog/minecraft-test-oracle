@@ -53,7 +53,7 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   doesn't hide (face culling). `buildMesh` does the whole world; `buildChunkMesh` does one
   fixed chunk (culling across borders) so edits remesh just the affected chunks.
 - **`terrain.ts`** — deterministic seeded terrain (`generateTerrain`), value-noise
-  heightmap, vertical layering.
+  heightmap, vertical layering, and hash-placed Log/Leaves trees on grass.
 - **`persistence.ts`** — save/load: run-length encodes a `World` to a compact binary blob
   (`encodeWorld`/`decodeWorld`) and base64 string (`serializeWorld`/`deserializeWorld`) for
   localStorage. `decode∘encode` is an exact round-trip, pinned by the census oracle.

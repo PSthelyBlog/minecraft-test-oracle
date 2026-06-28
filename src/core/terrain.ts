@@ -68,6 +68,8 @@ export function heightAt(seed: number, sizeY: number, x: number, z: number): num
  *   - 1 ≤ y < height-3       → Stone
  *   - y == 0                 → Bedrock (unbreakable floor)
  *   - y > height, y ≤ sea    → Water
+ *
+ * Then a tree pass (`placeTrees`) grows Log/Leaves trees on dry grass columns.
  */
 export function generateTerrain(world: World, seed: number, seaLevel?: number): void {
   const sea = seaLevel ?? Math.floor(world.sizeY * 0.42);
@@ -93,6 +95,87 @@ export function generateTerrain(world: World, seed: number, seaLevel?: number): 
           block = Block.Air;
         }
         world.set(x, y, z, block);
+      }
+    }
+  }
+
+  placeTrees(world, seed, sea);
+}
+
+// --- Trees --------------------------------------------------------------------
+//
+// Deterministic placement: the world is tiled into TREE_CELL×TREE_CELL cells and
+// each cell grows at most one tree, so trees are naturally spaced. A per-cell hash
+// gate decides whether the cell grows one; two more hashes pick the column inside
+// the cell; a fourth sets the trunk height. A tree appears only where its whole
+// footprint is in bounds and the chosen column is a DRY GRASS surface (height above
+// the beach/water line) with room under the ceiling — so a re-derivation of the same
+// rule recovers exactly the set of trunks (the census oracle).
+
+const TREE_CELL = 5; // one tree candidate per 5×5 column region
+const TREE_DENSITY = 0.5; // fraction of cells that grow a tree
+const CANOPY_RADIUS = 2; // leaves reach ±2 horizontally → footprint half-width
+
+// Distinct salts so the four per-cell hashes are independent.
+const SALT_GATE = 0x7a1;
+const SALT_OX = 0x1b3;
+const SALT_OZ = 0x2d9;
+const SALT_TRUNK = 0x5e7;
+
+/** Trunk height (4..6) for the tree in cell (cx, cz). */
+function trunkHeightAt(seed: number, cx: number, cz: number): number {
+  return 4 + Math.floor(hash2(seed ^ SALT_TRUNK, cx, cz) * 3);
+}
+
+interface Tree {
+  x: number;
+  z: number;
+  base: number; // first trunk cell (height + 1)
+  top: number; // last trunk cell (height + trunkHeight)
+}
+
+function placeTrees(world: World, seed: number, sea: number): void {
+  const { sizeX, sizeY, sizeZ } = world;
+  const cellsX = Math.ceil(sizeX / TREE_CELL);
+  const cellsZ = Math.ceil(sizeZ / TREE_CELL);
+
+  // Pass 1: decide which cells grow a tree and where (collect, don't place yet).
+  const trees: Tree[] = [];
+  for (let cz = 0; cz < cellsZ; cz++) {
+    for (let cx = 0; cx < cellsX; cx++) {
+      if (hash2(seed ^ SALT_GATE, cx, cz) >= TREE_DENSITY) continue;
+      const x = cx * TREE_CELL + Math.floor(hash2(seed ^ SALT_OX, cx, cz) * TREE_CELL);
+      const z = cz * TREE_CELL + Math.floor(hash2(seed ^ SALT_OZ, cx, cz) * TREE_CELL);
+      // Whole footprint in bounds → no clipped trees, so leaves never spill OOB.
+      if (x < CANOPY_RADIUS || x >= sizeX - CANOPY_RADIUS) continue;
+      if (z < CANOPY_RADIUS || z >= sizeZ - CANOPY_RADIUS) continue;
+      const height = heightAt(seed, sizeY, x, z);
+      if (height <= sea + 1) continue; // grass only (not beach/sand/underwater)
+      const top = height + trunkHeightAt(seed, cx, cz);
+      if (top + 1 > sizeY - 1) continue; // the canopy cap must fit under the ceiling
+      trees.push({ x, z, base: height + 1, top });
+    }
+  }
+
+  // Pass 2: trunks (all before any canopy, so a trunk never overwrites a leaf).
+  for (const t of trees) {
+    for (let y = t.base; y <= t.top; y++) world.set(t.x, y, t.z, Block.Log);
+  }
+
+  // Pass 3: canopies — Leaves on Air only, so overlapping canopies merge and the
+  // trunk's own column (already Log) is preserved. 5×5 (corner-trimmed) on the top
+  // two trunk layers, a 3×3 cap one above.
+  for (const t of trees) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const y = t.top + dy;
+      const r = dy <= 0 ? CANOPY_RADIUS : 1;
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (r === CANOPY_RADIUS && Math.abs(dx) === r && Math.abs(dz) === r) continue; // trim corners
+          if (world.get(t.x + dx, y, t.z + dz) === Block.Air) {
+            world.set(t.x + dx, y, t.z + dz, Block.Leaves);
+          }
+        }
       }
     }
   }

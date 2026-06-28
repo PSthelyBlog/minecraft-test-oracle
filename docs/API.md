@@ -226,9 +226,13 @@ byte-identical worlds. Default `seaLevel = floor(sizeY * 0.42)`. Column layering
 | `height < y ≤ sea`                  | Water                     |
 | else                                | Air                       |
 
+After layering, a deterministic tree pass grows `Log`/`Leaves` trees (one candidate per 5×5
+cell, hash-gated) on dry grass columns with room under the ceiling.
+
 > Invariants: a golden hash freezes the output for a fixed seed; same seed → identical
 > bytes, different seed → different bytes; `heightAt ∈ [1, sizeY-1]`; the layering contract
-> holds for every column; water never appears above sea level.
+> holds for every column; water never appears above sea level; trees appear exactly where the
+> placement rule predicts (census), every `Log` is grounded on `Log`/`Grass`.
 
 ---
 
