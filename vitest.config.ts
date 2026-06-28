@@ -7,6 +7,9 @@ export default defineConfig({
     // crashed before cleaning .stryker-tmp) — it would silently double every count.
     exclude: [...configDefaults.exclude, "**/.stryker-tmp/**"],
     environment: "node",
+    // Pin the fast-check seed (test/setup.ts) so property runs — and the mutation
+    // score — are reproducible run-to-run. See docs/TESTING.md.
+    setupFiles: ["./test/setup.ts"],
     // The heavier property-based oracles (e.g. the mesher AO census, which calls
     // world.get ~12× per face over many random worlds) run well under a second
     // normally, but StrykerJS instruments the source — on a slow CI runner a single

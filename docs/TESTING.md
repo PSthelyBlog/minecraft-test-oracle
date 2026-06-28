@@ -86,6 +86,27 @@ CI is unaffected (every run is a clean checkout), so this is a local-DX footgun,
 correctness bug. `mutation:clean` propagates Stryker's exit code, so it gates on the
 `break: 70` threshold exactly like `mutation`.
 
+## Reproducible runs: the pinned fast-check seed
+
+The cache footgun above is one source of an untrustworthy local number; **unseeded property
+tests** were the other. By default fast-check picks a random seed each run, so a mutant
+sitting near a property's detection edge could be killed on one run and survive on the next —
+the score wobbled by a mutant between otherwise-identical runs. That undercuts the point: the
+core bans `Math.random`/`Date.now` so its output is reproducible, yet the tests verifying it
+were not.
+
+So the suite **pins a fixed fast-check seed** in `test/setup.ts` (wired via `setupFiles` in
+`vitest.config.ts`), making every property run draw the same edge-biased sequence each time.
+The score and the exact survivor set are now identical run-to-run. The seed fixes the
+_sequence_, not the breadth — each property still explores its full `numRuns`.
+
+This is reproducibility, **not** masking: the pinned survivor set was verified **seed-
+independent** — running the whole suite under several different seeds yields the _same_
+survivors, so no seed kills any of them (they are the genuinely-equivalent mutants documented
+below). If a future change makes a previously-killed mutant survive only under the pinned
+seed, that is a weak oracle to **strengthen** (raise its `numRuns` or add a targeted example),
+not a number to accept. Explore other samples locally with `FAST_CHECK_SEED=<n> npm test`.
+
 ## Current results
 
 Run `npm run mutation:clean` for the authoritative live numbers (see the footgun above for
