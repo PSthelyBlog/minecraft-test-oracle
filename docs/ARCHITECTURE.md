@@ -54,6 +54,9 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   fixed chunk (culling across borders) so edits remesh just the affected chunks.
 - **`terrain.ts`** — deterministic seeded terrain (`generateTerrain`), value-noise
   heightmap, vertical layering.
+- **`persistence.ts`** — save/load: run-length encodes a `World` to a compact binary blob
+  (`encodeWorld`/`decodeWorld`) and base64 string (`serializeWorld`/`deserializeWorld`) for
+  localStorage. `decode∘encode` is an exact round-trip, pinned by the census oracle.
 - **`physics.ts`** — AABB-vs-voxel collision: `boxIntersectsSolid` (overlap test) and
   `moveAndCollide` (per-axis swept resolution).
 - **`atlas.ts`** — texture-atlas layout: `tileIndexFor(block, face)` (per-face tile choice)

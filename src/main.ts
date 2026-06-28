@@ -23,6 +23,7 @@ import {
 } from "three";
 
 import { World } from "./core/world";
+import { serializeWorld, deserializeWorld } from "./core/persistence";
 import { generateTerrain, heightAt } from "./core/terrain";
 import { Block, HOTBAR, blockDef } from "./core/blocks";
 import { raycast } from "./core/raycast";
@@ -44,8 +45,39 @@ const SIZE_X = 80,
   SIZE_Z = 80;
 const SEED = 20090513; // Minecraft Classic's first public release date :)
 
-const world = new World(SIZE_X, SIZE_Y, SIZE_Z);
-generateTerrain(world, SEED);
+const SAVE_KEY = "mc-classic-world-v1";
+
+// Restore a saved world if one is present and matches the current dimensions;
+// otherwise generate fresh terrain. A missing, mismatched, or corrupt save is
+// ignored (regenerate), never fatal.
+function loadWorld(): World | null {
+  try {
+    const text = localStorage.getItem(SAVE_KEY);
+    if (!text) return null;
+    const w = deserializeWorld(text);
+    if (w.sizeX !== SIZE_X || w.sizeY !== SIZE_Y || w.sizeZ !== SIZE_Z) return null;
+    return w;
+  } catch {
+    return null;
+  }
+}
+
+const saved = loadWorld();
+const world = saved ?? new World(SIZE_X, SIZE_Y, SIZE_Z);
+if (!saved) generateTerrain(world, SEED);
+
+// Persist edits, debounced so a burst of clicks writes localStorage once.
+let saveTimer = 0;
+function scheduleSave(): void {
+  clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => {
+    try {
+      localStorage.setItem(SAVE_KEY, serializeWorld(world));
+    } catch {
+      /* storage full or unavailable — drop the save rather than crash the game */
+    }
+  }, 500);
+}
 
 // ---------------------------------------------------------------------------
 // Three.js scene
@@ -133,6 +165,14 @@ document.addEventListener("mousemove", (e) => {
 window.addEventListener("keydown", (e) => {
   keys.add(e.code);
   if (e.code === "KeyF") player.flying = !player.flying;
+  if (e.code === "KeyN" && confirm("Start a new world? This discards your saved changes.")) {
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch {
+      /* ignore */
+    }
+    location.reload();
+  }
   if (e.code.startsWith("Digit")) {
     const n = Number(e.code.slice(5));
     if (n >= 1 && n <= HOTBAR.length) setSelected(n - 1);
@@ -169,7 +209,10 @@ function pickBlock() {
 function breakBlock(b: Vec3): void {
   const [x, y, z] = b;
   if (world.get(x, y, z) === Block.Bedrock) return; // Classic: bedrock is permanent
-  if (world.set(x, y, z, Block.Air)) terrain.rebuildAround(x, y, z);
+  if (world.set(x, y, z, Block.Air)) {
+    terrain.rebuildAround(x, y, z);
+    scheduleSave();
+  }
 }
 
 function placeBlock(p: Vec3): void {
@@ -182,6 +225,7 @@ function placeBlock(p: Vec3): void {
     return;
   }
   terrain.rebuildAround(x, y, z);
+  scheduleSave();
 }
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 87 oracle tests once (Vitest)
+npm test            # run all 99 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -112,18 +112,19 @@ not a number to accept. Explore other samples locally with `FAST_CHECK_SEED=<n> 
 Run `npm run mutation:clean` for the authoritative live numbers (see the footgun above for
 why `mutation:clean` and not `mutation`). As of this base implementation:
 
-| Module        | Mutation score | Notes                                                                             |
-| ------------- | -------------: | --------------------------------------------------------------------------------- |
-| `blocks.ts`   |           100% | static data; falsifiability proven by injection (see below)                       |
-| `math.ts`     |           100% |                                                                                   |
-| `movement.ts` |           100% |                                                                                   |
-| `atlas.ts`    |           100% | texture-atlas layout; `TILE_COLOR` static (injection-proven)                      |
-| `physics.ts`  |           ~98% |                                                                                   |
-| `world.ts`    |           ~97% |                                                                                   |
-| `mesher.ts`   |         ~97.6% | incl. chunked meshing + UVs + ambient occlusion; 4 equivalent mutants (see below) |
-| `terrain.ts`  |           ~95% |                                                                                   |
-| `raycast.ts`  |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)             |
-| **overall**   |     **~96.7%** | 87 tests across 14 files                                                          |
+| Module           | Mutation score | Notes                                                                             |
+| ---------------- | -------------: | --------------------------------------------------------------------------------- |
+| `blocks.ts`      |           100% | static data; falsifiability proven by injection (see below)                       |
+| `math.ts`        |           100% |                                                                                   |
+| `movement.ts`    |           100% |                                                                                   |
+| `atlas.ts`       |           100% | texture-atlas layout; `TILE_COLOR` static (injection-proven)                      |
+| `physics.ts`     |           ~98% |                                                                                   |
+| `world.ts`       |           ~97% |                                                                                   |
+| `mesher.ts`      |         ~97.6% | incl. chunked meshing + UVs + ambient occlusion; 4 equivalent mutants (see below) |
+| `terrain.ts`     |           ~95% |                                                                                   |
+| `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)         |
+| `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)             |
+| **overall**      |     **~96.2%** | 99 tests across 15 files                                                          |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
@@ -173,6 +174,19 @@ document these, not to chase a vanity number. The ones left here:
   so `v ∈ {2,2,1}`), hence `sv[0]` is structurally always `0` and `±sv[0]` is indistinguishable.
   The **Y and Z** components of the same expression are _not_ equivalent (both axes appear as a
   `v`) and the AO census kills them; only this one X mutant survives.
+- **`persistence.ts` survivors (6, all equivalent).** Two classes, both already seen elsewhere:
+  the **run-extension loop bound** in `encodeWorld` (`j < data.length` → `j <= data.length` / the
+  whole condition → `true`) is redundant with the inner `data[j] === value` guard — an
+  out-of-bounds read is `undefined`, which is never equal to the byte `value`, so the loop stops
+  in the same place (same class as the mesher loop bounds); the two **base64 loop bounds** behave
+  identically (an extra iteration sees an empty slice → appends nothing, or writes past the
+  Uint8Array → ignored); and two **error-message strings** (`decodeWorld`'s version/coverage
+  `RangeError` text) are not behaviour, like the `world.ts` constructor messages. The two checks
+  that _do_ carry weight — the version guard and the exact `Σruns === volume` coverage check — are
+  killed by the round-trip census and the malformed-input tests. (The earlier `decodeWorld`
+  length/overflow guards were _removed_, not documented: they were fully backstopped by DataView's
+  bounds-checking and the coverage check, so no test could kill them — a redundant line, not an
+  oracle gap.)
 
 `raycast.ts` used to sit lowest (~84%) precisely because DDA traversal has many
 degenerate-input guards. The ones that encode a _choice_ (tie-break order, inclusive reach,
@@ -197,7 +211,7 @@ node ".../test-oracle/scripts/oracle-doctor.mjs" .
 ```
 
 It checks the wiring (deps, scripts, configs) and lists any module lacking a sibling oracle.
-Current state: **13/14 modules paired**. The one exception is `src/main.ts` — the browser
+Current state: **14/15 modules paired**. The one exception is `src/main.ts` — the browser
 entry shell (DOM, WebGL, the frame loop) which can't be imported in Node. It is covered by
 the **smoke test** (`scripts/smoke.mjs`) instead: a headless Chromium run that boots the game,
 asserts no console/page errors, that the frame loop ran (HUD shows coordinates), that the
