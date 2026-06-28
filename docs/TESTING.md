@@ -241,3 +241,17 @@ verified in CI, not just on a developer's Mac.
 The mutation step is what keeps the suite honest over time: as the code changes, a dropping
 score means new blind spots. The smoke job does the same for the shell — if the render ever
 silently breaks, the pixel census fails CI.
+
+### Heavy jobs run only when they can matter
+
+The two slow jobs — **mutation** (~3.5 min) and **smoke** (~1.3 min) — only do real work
+when a PR touches code or build inputs (`src/`, `scripts/`, the lockfile/manifest, the
+`*.config.*` / `tsconfig`, `index.html`, or `ci.yml` itself). On a **docs/config-only PR**
+(Markdown, the screenshot, `dependabot.yml`, the LICENSE…) their expensive steps are skipped
+and the job still reports **success in seconds**, so the required check stays green. This is
+done with an inline `git diff` step that gates the steps (not a job-level `if:`, which would
+leave a required check "pending" and block the merge); on push to `main` the full gate always
+runs. The fast checks (`typecheck · test · build`, `lint`) run on every PR regardless.
+
+Mirror this locally: there's no need to run `mutation:clean` or `smoke` for a docs/config
+change — run them when you touch `src/` or dependencies, exactly as CI does.

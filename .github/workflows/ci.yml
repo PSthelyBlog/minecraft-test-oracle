@@ -38,21 +38,49 @@ jobs:
       - name: Prettier format check
         run: npm run format:check
 
+  # The two heavy jobs (smoke ~1.3m, mutation ~3.5m) only do real work when the PR
+  # touches code or build inputs. For docs/config-only PRs the expensive steps are
+  # skipped and the job still reports SUCCESS in seconds — so the required check
+  # stays green without a job-level `if:` (a skipped job would leave the required
+  # check "pending" and block the merge). The detection is inlined per job on
+  # purpose: routing it through a shared `needs:` job would skip these required
+  # checks if that job ever failed. On push to main the full gate always runs.
+
   smoke:
     name: smoke (headless render check)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect code/build changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          echo "Changed files:"; echo "$files"
+          if echo "$files" | grep -qE '^(src/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "No code/build changes — smoke will be skipped."
+            echo "run=false" >>"$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v6
+        if: steps.changes.outputs.run == 'true'
         with:
           node-version: 20
           cache: npm
       - run: npm ci
+        if: steps.changes.outputs.run == 'true'
       # Pull Playwright's bundled Chromium + the Linux system libs it needs.
       # scripts/smoke.mjs falls back to this when CHROME_PATH is unset.
       - name: Install Chromium
+        if: steps.changes.outputs.run == 'true'
         run: npx playwright install --with-deps chromium
       - name: Build
+        if: steps.changes.outputs.run == 'true'
         run: npm run build
       # Serve the production build and boot it in headless Chromium (software WebGL
       # via SwiftShader). The smoke test asserts no console/page errors, the frame
@@ -60,6 +88,7 @@ jobs:
       # render check — that the voxel world actually drew (terrain fills the frame;
       # a missing geometry upload would clear to bare sky and fail).
       - name: Preview + smoke
+        if: steps.changes.outputs.run == 'true'
         env:
           URL: http://localhost:4173/
         run: |
@@ -69,31 +98,56 @@ jobs:
           npm run smoke
           kill $PREVIEW_PID
       - name: Upload smoke screenshot
-        if: always()
+        if: steps.changes.outputs.run == 'true' && always()
         uses: actions/upload-artifact@v7
         with:
           name: smoke-screenshot
           path: scripts/screenshot.png
           if-no-files-found: ignore
+      - name: Skipped (no code/build changes)
+        if: steps.changes.outputs.run != 'true'
+        run: echo "Docs/config-only PR — render check not needed; required check passes."
 
   mutation:
     name: mutation testing (falsifiability gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect code/build changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          echo "Changed files:"; echo "$files"
+          if echo "$files" | grep -qE '^(src/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "No code/build changes — mutation will be skipped."
+            echo "run=false" >>"$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v6
+        if: steps.changes.outputs.run == 'true'
         with:
           node-version: 20
           cache: npm
       - run: npm ci
+        if: steps.changes.outputs.run == 'true'
       # Fails if the mutation score drops below the `break` threshold (70) in
       # stryker.config.json — i.e. if a change introduces new oracle blind spots.
       - name: StrykerJS
+        if: steps.changes.outputs.run == 'true'
         run: npm run mutation
       - name: Upload mutation report
-        if: always()
+        if: steps.changes.outputs.run == 'true' && always()
         uses: actions/upload-artifact@v7
         with:
           name: mutation-report
           path: reports/mutation/
           if-no-files-found: ignore
+      - name: Skipped (no code/build changes)
+        if: steps.changes.outputs.run != 'true'
+        run: echo "Docs/config-only PR — falsifiability gate not needed; required check passes."
