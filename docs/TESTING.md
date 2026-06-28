@@ -121,10 +121,10 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `physics.ts`     |           ~98% |                                                                                   |
 | `world.ts`       |           ~97% |                                                                                   |
 | `mesher.ts`      |         ~97.6% | incl. chunked meshing + UVs + ambient occlusion; 4 equivalent mutants (see below) |
-| `terrain.ts`     |           ~95% |                                                                                   |
+| `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate |
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)         |
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)             |
-| **overall**      |     **~96.2%** | 99 tests across 15 files                                                          |
+| **overall**      |     **~95.9%** | 103 tests across 15 files                                                         |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
@@ -161,6 +161,17 @@ document these, not to chase a vanity number. The ones left here:
   so the clamp never binds.
 - **`else { block = Air }` → `{}`** (`terrain.ts`): leaves `block` undefined, which a
   `Uint8Array` coerces to `0` = Air anyway.
+- **`terrain.ts` tree-placement survivors (equivalent).** The tree pass tiles the world into
+  cells and bounds-checks each candidate, so several mutants change nothing observable:
+  the generation/cell **loop bounds** (`<` → `<=`) and the **cell-count** divides
+  (`ceil(size / TREE_CELL)` → `* TREE_CELL`) only ever add cells whose candidate column lands
+  out of bounds and is skipped — the same trees are placed; the **`trees` array initializer**
+  (`[]` → `["…"]`) injects a junk element whose `undefined` coordinates fail `inBounds`, a
+  no-op; and the **density gate** (`hash ≥ TREE_DENSITY` → `> `) differs only when a cell hash
+  is _exactly_ `0.5` — a measure-zero input the census would otherwise kill. The placement
+  that _is_ observable (which cell grows, where, how tall, rooted on grass) is pinned by the
+  tree golden hash, the **census bijection** (re-derived roots ⇔ actual `Log` trunk bases), and
+  the grounded-trunk invariant.
 - **Neighbour-offset sign** (`chunksAffectedByEdit` in `mesher.ts`, `coord + delta` →
   `coord - delta`): the offset list is symmetric (each axis appears as both `+1` and `−1`),
   so flipping a sign visits the same neighbours in a different order and returns the **same

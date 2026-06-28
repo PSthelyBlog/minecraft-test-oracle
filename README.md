@@ -17,7 +17,7 @@ proven to actually catch bugs via **mutation testing**.
 ```bash
 npm install
 npm run dev        # play at http://localhost:5173
-npm test           # 99 oracle tests (Vitest + fast-check)
+npm test           # 103 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
