@@ -31,7 +31,7 @@ export function encodeWorld(world: World): Uint8Array {
   // Build the runs first so we know the exact output length.
   const counts: number[] = [];
   const values: number[] = [];
-  for (let i = 0; i < data.length; ) {
+  for (let i = 0; i < data.length;) {
     const value = data[i];
     let j = i + 1;
     while (j < data.length && data[j] === value) j++;
