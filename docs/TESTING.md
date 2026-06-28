@@ -129,6 +129,19 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
 
+### The README badge is generated, not hand-synced
+
+The README **Mutation score** badge is no longer a hand-edited static value. On every push
+to `main`, the CI mutation job runs Stryker with the **`dashboard` reporter** enabled (an
+extra `--reporters …,dashboard` only on `main`, gated on the `STRYKER_DASHBOARD_API_KEY`
+repo secret) and uploads the full report to the
+[Stryker dashboard](https://dashboard.stryker-mutator.io/reports/github.com/PSthelyBlog/minecraft-test-oracle/main).
+The badge points at the dashboard's shields **endpoint** (`badge-api.stryker-mutator.io/…/main`),
+so it tracks the authoritative score automatically. PR builds run the same gate **without**
+uploading (the reporter is omitted off `main`), so a fork PR is never gated on the secret.
+The per-module table below is still maintained by hand — it is documentation of _where_ the
+survivors are, not the headline number.
+
 ## Equivalent mutants (why not 100%)
 
 Some surviving mutants are **equivalent** — they change the source without changing any

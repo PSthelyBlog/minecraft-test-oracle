@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/PSthelyBlog/minecraft-test-oracle/actions/workflows/ci.yml/badge.svg)](https://github.com/PSthelyBlog/minecraft-test-oracle/actions/workflows/ci.yml)
 [![Live demo](https://img.shields.io/badge/demo-live-success)](https://psthelyblog.github.io/minecraft-test-oracle/)
-[![Mutation score](https://img.shields.io/badge/mutation-~96%25-brightgreen)](docs/TESTING.md)
+[![Mutation score](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2FPSthelyBlog%2Fminecraft-test-oracle%2Fmain)](https://dashboard.stryker-mutator.io/reports/github.com/PSthelyBlog/minecraft-test-oracle/main)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 A browser voxel sandbox in the spirit of **Minecraft Classic (2009)**: walk around a

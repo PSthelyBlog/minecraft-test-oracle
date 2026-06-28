@@ -158,9 +158,24 @@ jobs:
         if: steps.changes.outputs.run == 'true'
       # Fails if the mutation score drops below the `break` threshold (70) in
       # stryker.config.json — i.e. if a change introduces new oracle blind spots.
-      - name: StrykerJS
+      # On push to main (and only there) we also enable the `dashboard` reporter,
+      # which uploads the score to the Stryker dashboard so the README badge tracks
+      # the authoritative number automatically (no more hand-syncing). PRs run the
+      # gate without uploading — to avoid per-branch noise and so a fork PR (no
+      # secret) is never gated on the dashboard. The reporter catches an
+      # upload/auth error without failing the build, but skipping it on PRs is
+      # cleaner. STRYKER_DASHBOARD_API_KEY is a repo secret.
+      - name: StrykerJS (falsifiability gate)
         if: steps.changes.outputs.run == 'true'
-        run: npm run mutation
+        env:
+          STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "Push to main — publishing the score to the Stryker dashboard."
+            npm run mutation -- --reporters progress,clear-text,json,html,dashboard
+          else
+            npm run mutation
+          fi
       - name: Upload mutation report
         if: steps.changes.outputs.run == 'true' && always()
         uses: actions/upload-artifact@v7
