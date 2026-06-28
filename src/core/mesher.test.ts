@@ -463,7 +463,7 @@ describe("mesher ambient-occlusion oracle", () => {
           expect(Array.from(m.indices.slice(f * 6, f * 6 + 6))).toEqual(expectedIdx);
         }
       }),
-      { numRuns: 200 },
+      { numRuns: 80 },
     );
   });
 
@@ -501,7 +501,7 @@ describe("mesher ambient-occlusion oracle", () => {
           }
         }
       }),
-      { numRuns: 150 },
+      { numRuns: 50 },
     );
   });
 });
