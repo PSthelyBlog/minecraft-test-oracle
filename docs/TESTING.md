@@ -335,12 +335,12 @@ critical path of every PR.
 
 ### What CI still does
 
-| Check                          | When                    | Gate?                       |
-| ------------------------------ | ----------------------- | --------------------------- |
-| `typecheck · test · build`     | every PR + push         | **required**                |
-| `lint (eslint · prettier)`     | every PR + push         | **required**                |
-| `smoke (headless render check)`| every PR + push¹        | **required**                |
-| `mutation badge (push to main)`| push to `main` only¹    | no — refreshes the badge    |
+| Check                           | When                 | Gate?                    |
+| ------------------------------- | -------------------- | ------------------------ |
+| `typecheck · test · build`      | every PR + push      | **required**             |
+| `lint (eslint · prettier)`      | every PR + push      | **required**             |
+| `smoke (headless render check)` | every PR + push¹     | **required**             |
+| `mutation badge (push to main)` | push to `main` only¹ | no — refreshes the badge |
 
 ¹ The two heavy jobs only do real work when the change touches code/build inputs (an inline
 `git diff` step); a docs/config-only change skips the expensive steps. **smoke** stays a
