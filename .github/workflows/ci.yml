@@ -44,7 +44,9 @@ jobs:
   # stays green without a job-level `if:` (a skipped job would leave the required
   # check "pending" and block the merge). The detection is inlined per job on
   # purpose: routing it through a shared `needs:` job would skip these required
-  # checks if that job ever failed. On push to main the full gate always runs.
+  # checks if that job ever failed. The same detection runs on push to main
+  # (diffing the pushed range), so a docs-only merge doesn't re-run the heavy gate
+  # on identical code — but any code/build change still gets the full gate on main.
 
   smoke:
     name: smoke (headless render check)
@@ -56,15 +58,24 @@ jobs:
       - name: Detect code/build changes
         id: changes
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          # Pick the diff range for this event (PR: base→head; push: before→after).
+          # Fall back to the full gate on anything unexpected (new branch, force-push,
+          # unfetched base) so we never under-run.
+          case "${{ github.event_name }}" in
+            pull_request) base="${{ github.event.pull_request.base.sha }}"; head="${{ github.event.pull_request.head.sha }}" ;;
+            push)         base="${{ github.event.before }}";                head="${{ github.sha }}" ;;
+            *)            echo "run=true" >>"$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "No usable base ($base) — running the full gate."
             echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
           fi
-          files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          files=$(git diff --name-only "$base" "$head")
           echo "Changed files:"; echo "$files"
           if echo "$files" | grep -qE '^(src/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
             echo "run=true" >>"$GITHUB_OUTPUT"
           else
-            echo "No code/build changes — smoke will be skipped."
+            echo "No code/build changes — render check will be skipped."
             echo "run=false" >>"$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-node@v6
@@ -118,15 +129,24 @@ jobs:
       - name: Detect code/build changes
         id: changes
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          # Pick the diff range for this event (PR: base→head; push: before→after).
+          # Fall back to the full gate on anything unexpected (new branch, force-push,
+          # unfetched base) so we never under-run.
+          case "${{ github.event_name }}" in
+            pull_request) base="${{ github.event.pull_request.base.sha }}"; head="${{ github.event.pull_request.head.sha }}" ;;
+            push)         base="${{ github.event.before }}";                head="${{ github.sha }}" ;;
+            *)            echo "run=true" >>"$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "No usable base ($base) — running the full gate."
             echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
           fi
-          files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          files=$(git diff --name-only "$base" "$head")
           echo "Changed files:"; echo "$files"
           if echo "$files" | grep -qE '^(src/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
             echo "run=true" >>"$GITHUB_OUTPUT"
           else
-            echo "No code/build changes — mutation will be skipped."
+            echo "No code/build changes — falsifiability gate will be skipped."
             echo "run=false" >>"$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-node@v6

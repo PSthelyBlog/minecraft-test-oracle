@@ -250,8 +250,10 @@ when a PR touches code or build inputs (`src/`, `scripts/`, the lockfile/manifes
 (Markdown, the screenshot, `dependabot.yml`, the LICENSE…) their expensive steps are skipped
 and the job still reports **success in seconds**, so the required check stays green. This is
 done with an inline `git diff` step that gates the steps (not a job-level `if:`, which would
-leave a required check "pending" and block the merge); on push to `main` the full gate always
-runs. The fast checks (`typecheck · test · build`, `lint`) run on every PR regardless.
+leave a required check "pending" and block the merge). The **same detection runs on push to
+`main`** (diffing the pushed range), so a docs-only merge doesn't re-run the ~9-min heavy gate
+on byte-identical code — but any code/build change still gets the full authoritative gate on
+`main`. The fast checks (`typecheck · test · build`, `lint`) run on every PR and push regardless.
 
 Mirror this locally: there's no need to run `mutation:clean` or `smoke` for a docs/config
 change — run them when you touch `src/` or dependencies, exactly as CI does.
