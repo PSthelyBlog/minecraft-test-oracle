@@ -92,6 +92,25 @@ the core depends on (see [ARCHITECTURE.md](./ARCHITECTURE.md#coordinate-and-angl
 
 ---
 
+## `core/persistence.ts`
+
+```ts
+const FORMAT_VERSION: number; // = 1; bumped on incompatible layout changes
+
+encodeWorld(world: World): Uint8Array; // 13-byte header (version + u32 dims) then (u32 count, u8 value) RLE runs
+decodeWorld(bytes: Uint8Array): World; // inverse; throws RangeError on bad version/truncation/coverage
+serializeWorld(world: World): string; // base64(encodeWorld) — for localStorage
+deserializeWorld(text: string): World; // inverse; throws RangeError on malformed input
+```
+
+Run-length encodes the flat block array (long Air/Stone/Water runs collapse). The shell
+(`main.ts`) autosaves edits to localStorage and restores them on reload.
+
+> Invariants: `decode∘encode` (and `deserialize∘serialize`) reproduce dims and **every cell**
+> for any world; runs cover exactly `volume`; a uniform world is one run; malformed input throws.
+
+---
+
 ## `core/raycast.ts`
 
 ```ts
