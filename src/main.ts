@@ -15,7 +15,6 @@ import {
   Fog,
   HemisphereLight,
   DirectionalLight,
-  MeshLambertMaterial,
   BoxGeometry,
   EdgesGeometry,
   LineSegments,
@@ -30,7 +29,7 @@ import { raycast } from "./core/raycast";
 import { boxIntersectsSolid } from "./core/physics";
 import { directionFromYawPitch, type Vec3 } from "./core/math";
 import { ChunkedTerrain } from "./render/chunkedTerrain";
-import { buildAtlasTexture } from "./render/atlasTexture";
+import { buildTerrainMaterial } from "./render/terrainMaterial";
 import { selfCheck } from "./core/selfcheck";
 import { stepMovement, type PlayerState, type MovementTuning } from "./game/movement";
 
@@ -101,9 +100,10 @@ scene.add(sun);
 
 // Chunked terrain: the world is split into fixed cubes, each its own mesh, so a
 // block edit rebuilds only the chunk(s) it touches instead of the whole world.
-// Blocks are textured from a procedural atlas; the per-vertex colour now carries
-// only the per-face ambient shade, so the final look is texel × shade × lighting.
-const terrainMaterial = new MeshLambertMaterial({ vertexColors: true, map: buildAtlasTexture() });
+// Blocks are textured from a procedural tile ARRAY (one layer per tile), sampled by
+// the mesher's per-vertex `layer`; the per-vertex colour carries only the per-face
+// ambient shade, so the final look is texel × shade × lighting.
+const terrainMaterial = buildTerrainMaterial();
 const terrain = new ChunkedTerrain(world, terrainMaterial);
 scene.add(terrain.group);
 

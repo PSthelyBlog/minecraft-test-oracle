@@ -147,7 +147,8 @@ interface ChunkMesh {
   positions: Float32Array;   // xyz per vertex
   normals: Float32Array;     // xyz per vertex
   colors: Float32Array;      // rgb per vertex — per-face shade × per-vertex AO (greyscale)
-  uvs: Float32Array;         // st per vertex — into the texture atlas
+  uvs: Float32Array;         // st per vertex — TILE-LOCAL [0,1] (a unit quad covers one tile)
+  layers: Float32Array;      // tile index per vertex — selects the tile (= texture-array layer)
   indices: Uint32Array;      // 6 per quad (two triangles)
   faceCount: number;         // number of visible quads emitted
 }
@@ -181,27 +182,27 @@ faceCount*6`).
 > **Chunking:** Σ per-chunk `faceCount` == whole-world `faceCount` and the per-chunk face
 > _sets_ union to the whole-world set; `chunkDims` is the minimal cover (`(n−1)·size < dim ≤
 n·size`); `chunksAffectedByEdit` reports every chunk an edit can change.
-> **Textures:** each face's 4 UVs equal `uvRectForTile(tileIndexFor(block, face))`.
+> **Textures:** each face's 4 UVs are the corners of the unit tile `[0,1]²`, and every vertex's
+> `layer` equals `tileIndexFor(block, face)` — the tile (= texture-array layer) it samples.
 
 ---
 
 ## `core/atlas.ts`
 
 ```ts
-const ATLAS_COLS = 4, ATLAS_ROWS = 4, TILE_COUNT = 15
-const Tile = { Stone, GrassTop, GrassSide, Dirt, ... }   // tile slots
+const TILE_COUNT = 15
+const Tile = { Stone, GrassTop, GrassSide, Dirt, ... }   // tile slots = texture-array layers
 TILE_COLOR: Record<TileIndex, [r,g,b]>                    // base colour per tile (static)
-tileIndexFor(id: BlockId, faceIndex: number): TileIndex   // per-face tile choice
-uvRectForTile(t: number): { u0, v0, u1, v1 }              // tile → UV rect in [0,1]²
+tileIndexFor(id: BlockId, faceIndex: number): TileIndex   // per-face tile (= layer) choice
 ```
 
-Pure texture-atlas layout. `tileIndexFor` gives grass a green top / dirt bottom / grass-side
-ring and logs end-grain on the caps; every other block uses one tile on all faces.
-`uvRectForTile` places tile `t` at column `t % ATLAS_COLS`, row `⌊t / ATLAS_COLS⌋`.
+Pure tile selection. `tileIndexFor` gives grass a green top / dirt bottom / grass-side ring
+and logs end-grain on the caps; every other block uses one tile on all faces. The returned
+index is the texture-array layer the mesher emits per-vertex (there is no atlas-grid UV math —
+the tile is _selected_, not positioned in a grid).
 
-> Invariants: every tile's rect is a `1/COLS × 1/ROWS` cell within `[0,1]²` whose corner
-> recovers its index (a bijection); `tileIndexFor` is total over every block × face into
-> `[0, TILE_COUNT)`; grass/log faces are distinct, plain blocks uniform.
+> Invariants: `tileIndexFor` is total over every block × face into `[0, TILE_COUNT)`;
+> grass/log faces are distinct, plain blocks uniform.
 
 ---
 
@@ -307,8 +308,9 @@ buildChunkGeometry(world: World): THREE.BufferGeometry     // = geometryFromMesh
 ```
 
 Uploads a mesher result into a `BufferGeometry` (`position`/`normal`/`color` at itemSize 3,
-`uv` at itemSize 2, indexed). The only bridge between the pure core and Three.js geometry.
-Three's `BufferGeometry` is pure JS (no WebGL context needed), so this is unit-tested too.
+`uv` at itemSize 2, `layer` at itemSize 1, indexed). The only bridge between the pure core and
+Three.js geometry. Three's `BufferGeometry` is pure JS (no WebGL context needed), so this is
+unit-tested too.
 
 > Invariant: the geometry's attributes are byte-for-byte what the mesher produced.
 
@@ -317,15 +319,31 @@ Three's `BufferGeometry` is pure JS (no WebGL context needed), so this is unit-t
 ## `render/atlasTexture.ts`
 
 ```ts
-buildAtlasTexture(tilePx?: number): THREE.DataTexture
+buildTileArrayTexture(tilePx?: number): THREE.DataArrayTexture
 ```
 
-Generates the block texture atlas procedurally (no image assets) from `core/atlas`'s
-`TILE_COLOR`, with a deterministic per-pixel grain + 1px bevel and `NearestFilter` for crisp
-Classic pixels. Used as the terrain material's `map` in `main.ts`.
+Generates the block tiles procedurally (no image assets) as a **DataArrayTexture** — one tile
+per layer, layer index == `core/atlas`'s tile index — from `TILE_COLOR`, with a deterministic
+per-pixel grain + 1px bevel, `NearestFilter`, and `RepeatWrapping` (so a greedy quad's UV > 1
+tiles its layer). Sampled by the terrain material via `texture(array, vec3(uv, layer))`.
 
-> Invariant (unit-tested): each tile's cell in the generated image averages to that tile's
-> `TILE_COLOR` at the atlas position `core/atlas` assigns it.
+> Invariant (unit-tested): each layer averages to that tile's `TILE_COLOR`, at layer index ==
+> the tile index `core/atlas` assigns it; the texture is one square layer per tile, nearest-
+> filtered and repeat-wrapped.
+
+---
+
+## `render/terrainMaterial.ts`
+
+```ts
+buildTerrainMaterial(): THREE.MeshLambertMaterial
+```
+
+The terrain material: a `MeshLambertMaterial` whose texture fetch is redirected (via
+`onBeforeCompile`) from a 2D `map` to the tile **array**, indexed by the per-vertex `layer`
+attribute. All of Lambert's lighting/fog/`vertexColors` (the AO×shade) are kept, so the look
+is unchanged; only the sampling changes — which is what lets a greedy-meshed quad repeat a
+tile. Render-shell wiring, verified by the smoke test (no unit oracle).
 
 ---
 

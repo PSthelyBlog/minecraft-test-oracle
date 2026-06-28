@@ -11,7 +11,7 @@ import {
   chunksAffectedByEdit,
   type ChunkMesh,
 } from "./mesher";
-import { tileIndexFor, uvRectForTile } from "./atlas";
+import { tileIndexFor } from "./atlas";
 
 /**
  * INDEPENDENT oracle for the visible-face count.
@@ -123,6 +123,7 @@ describe("mesher oracle", () => {
     expect(m.normals.length).toBe(m.faceCount * 4 * 3);
     expect(m.colors.length).toBe(m.faceCount * 4 * 3);
     expect(m.uvs.length).toBe(m.faceCount * 4 * 2); // 2 UV components per vertex
+    expect(m.layers.length).toBe(m.faceCount * 4); // 1 tile index per vertex
     expect(m.indices.length).toBe(m.faceCount * 6);
     for (let i = 0; i < m.normals.length; i += 3) {
       const mag = Math.abs(m.normals[i]) + Math.abs(m.normals[i + 1]) + Math.abs(m.normals[i + 2]);
@@ -181,11 +182,12 @@ describe("mesher oracle", () => {
     expect(seenNormals.size).toBe(6);
   });
 
-  // GOLDEN UVs: pin the exact UVs of one known face. A lone Stone block's +X face
-  // must carry the Stone tile's rect, walked in the FACE_UV winding order
-  // (u0,v1),(u1,v1),(u1,v0),(u0,v0). This nails the corner→UV convention so a
-  // transposed or flipped mapping is loud.
-  test("golden: a known face carries its tile's UVs in winding order", () => {
+  // GOLDEN UVs + LAYER: pin the exact tile-local UVs of one known face. A lone Stone
+  // block's +X face must carry the unit tile [0,1]² walked in FACE_UV winding order
+  // (0,1),(1,1),(1,0),(0,0), and every one of its vertices must select the Stone
+  // tile's layer. This nails the corner→UV convention and the per-vertex tile so a
+  // transposed/flipped UV or a wrong-tile face is loud.
+  test("golden: a known face carries tile-local UVs in winding order and its tile layer", () => {
     const w = new World(3, 3, 3);
     w.set(1, 1, 1, Block.Stone);
     const m = buildMesh(w);
@@ -193,25 +195,18 @@ describe("mesher oracle", () => {
     let fx = -1;
     for (let f = 0; f < m.faceCount; f++) if (m.normals[f * 4 * 3] === 1) fx = f;
     expect(fx).toBeGreaterThanOrEqual(0);
-    const r = uvRectForTile(tileIndexFor(Block.Stone, 0)); // face 0 = +X
     const base = fx * 4 * 2;
-    expect(Array.from(m.uvs.slice(base, base + 8))).toEqual([
-      r.u0,
-      r.v1,
-      r.u1,
-      r.v1,
-      r.u1,
-      r.v0,
-      r.u0,
-      r.v0,
-    ]);
+    expect(Array.from(m.uvs.slice(base, base + 8))).toEqual([0, 1, 1, 1, 1, 0, 0, 0]);
+    const layer = tileIndexFor(Block.Stone, 0); // face 0 = +X
+    for (let k = 0; k < 4; k++) expect(m.layers[fx * 4 + k]).toBe(layer);
   });
 
-  // CENSUS over UVs: for EVERY emitted face, its 4 UV pairs must equal the rect of
-  // the tile that face's block selects — re-derived independently from (block, face)
-  // via the atlas. Catches a face sampling the wrong tile, or UVs leaking outside the
-  // tile, across a mixed world (grass/log have per-face tiles; this exercises them).
-  test("census: every face's UVs equal its (block,face) tile rect", () => {
+  // CENSUS over UVs + LAYER: for EVERY emitted face, its 4 UV pairs must be the four
+  // corners of the unit tile [0,1]², AND every vertex's layer must equal the tile the
+  // face's block selects — re-derived independently from (block, face) via the atlas.
+  // Catches a face sampling the wrong tile (layer), or UVs that don't span the tile,
+  // across a mixed world (grass/log have per-face tiles; this exercises them).
+  test("census: every face spans its unit tile and carries its (block,face) tile layer", () => {
     const id = fc.constantFrom(
       Block.Air,
       Block.Stone,
@@ -242,15 +237,18 @@ describe("mesher oracle", () => {
           const cy = Math.floor((m.positions[p + 1] + m.positions[p + 7]) / 2 - ny * 0.5);
           const cz = Math.floor((m.positions[p + 2] + m.positions[p + 8]) / 2 - nz * 0.5);
           const block = w.get(cx, cy, cz);
-          const r = uvRectForTile(tileIndexFor(block, fi));
+          const expectedLayer = tileIndexFor(block, fi);
           const us: number[] = [],
             vs: number[] = [];
           for (let k = 0; k < 4; k++) {
             us.push(m.uvs[f * 8 + k * 2]);
             vs.push(m.uvs[f * 8 + k * 2 + 1]);
+            // every vertex of this face selects the face's tile (= texture-array layer)
+            expect(m.layers[f * 4 + k]).toBe(expectedLayer);
           }
-          for (const u of us) expect(u === r.u0 || u === r.u1).toBe(true);
-          for (const v of vs) expect(v === r.v0 || v === r.v1).toBe(true);
+          // a unit quad covers exactly one tile: UVs are the unit square's corners
+          for (const u of us) expect(u === 0 || u === 1).toBe(true);
+          for (const v of vs) expect(v === 0 || v === 1).toBe(true);
           // all four distinct corners of the tile are present (a real quad, not collapsed)
           expect(new Set(us.map((u, i) => `${u},${vs[i]}`)).size).toBe(4);
         }

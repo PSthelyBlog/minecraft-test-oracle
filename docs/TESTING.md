@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 99 oracle tests once (Vitest)
+npm test            # run all 101 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -117,14 +117,14 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `blocks.ts`      |           100% | static data; falsifiability proven by injection (see below)                       |
 | `math.ts`        |           100% |                                                                                   |
 | `movement.ts`    |           100% |                                                                                   |
-| `atlas.ts`       |           100% | texture-atlas layout; `TILE_COLOR` static (injection-proven)                      |
+| `atlas.ts`       |           100% | per-face tile (layer) selection; `TILE_COLOR` static (injection-proven)           |
 | `physics.ts`     |           ~98% |                                                                                   |
 | `world.ts`       |           ~97% |                                                                                   |
-| `mesher.ts`      |         ~97.6% | incl. chunked meshing + UVs + ambient occlusion; 4 equivalent mutants (see below) |
+| `mesher.ts`      |         ~97.5% | incl. chunked meshing + tile-local UV/layer + ambient occlusion; 4 equiv. mutants |
 | `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate |
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)         |
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)             |
-| **overall**      |     **~95.9%** | 103 tests across 15 files                                                         |
+| **overall**      |     **~95.9%** | 101 tests across 15 files                                                         |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
 run fails CI below 70.
