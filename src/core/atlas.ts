@@ -1,20 +1,17 @@
 /**
- * Texture-atlas layout: the pure mapping from (block, face) to a tile, and from a
- * tile to its UV rectangle in the atlas. This is the silent-failure surface behind
- * textured blocks — an off-by-one in the row/column math, a flipped axis, or the
- * wrong tile for a face all render as "subtly wrong textures" with no error — so it
- * lives in the oracle-tested core, separate from the Three.js texture generation.
+ * Tile selection: the pure mapping from (block, face) to a tile index. This is the
+ * silent-failure surface behind textured blocks — the wrong tile for a face renders
+ * as a "subtly wrong texture" with no error — so it lives in the oracle-tested core,
+ * separate from the Three.js texture generation.
  *
- * The atlas is a fixed ATLAS_COLS × ATLAS_ROWS grid of square tiles; tile index t
- * occupies column `t % ATLAS_COLS`, row `Math.floor(t / ATLAS_COLS)`.
+ * The tile index is also the texture-array LAYER the renderer samples (one tile per
+ * layer); the mesher emits it per-vertex alongside tile-local UVs, so there is no
+ * atlas-grid UV math here anymore — a tile is selected, not positioned in a grid.
  */
 
 import { Block, type BlockId } from "./blocks";
 
-export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 4;
-
-/** Tile slots in the atlas (grass and log get distinct top/side tiles). */
+/** Tile slots, one per array layer (grass and log get distinct top/side tiles). */
 export const Tile = {
   Stone: 0,
   GrassTop: 1,
@@ -35,7 +32,7 @@ export const Tile = {
 
 export type TileIndex = (typeof Tile)[keyof typeof Tile];
 
-/** Number of tiles actually used (≤ ATLAS_COLS*ATLAS_ROWS). */
+/** Number of tiles (= texture-array layers). */
 export const TILE_COUNT = 15;
 
 function rgb(r: number, g: number, b: number): readonly [number, number, number] {
@@ -102,26 +99,4 @@ export function tileIndexFor(id: BlockId, faceIndex: number): TileIndex {
     return Tile.LogSide;
   }
   return BLOCK_TILE[id] ?? Tile.Stone;
-}
-
-export interface UVRect {
-  readonly u0: number;
-  readonly v0: number;
-  readonly u1: number;
-  readonly v1: number;
-}
-
-/**
- * The UV rectangle (in [0,1] atlas space) covering tile `t`. Column advances u,
- * row advances v; each tile is exactly 1/ATLAS_COLS wide and 1/ATLAS_ROWS tall.
- */
-export function uvRectForTile(t: number): UVRect {
-  const col = t % ATLAS_COLS;
-  const row = Math.floor(t / ATLAS_COLS);
-  return {
-    u0: col / ATLAS_COLS,
-    v0: row / ATLAS_ROWS,
-    u1: (col + 1) / ATLAS_COLS,
-    v1: (row + 1) / ATLAS_ROWS,
-  };
 }

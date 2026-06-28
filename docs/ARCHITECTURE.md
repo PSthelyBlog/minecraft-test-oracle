@@ -59,8 +59,8 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   localStorage. `decode∘encode` is an exact round-trip, pinned by the census oracle.
 - **`physics.ts`** — AABB-vs-voxel collision: `boxIntersectsSolid` (overlap test) and
   `moveAndCollide` (per-axis swept resolution).
-- **`atlas.ts`** — texture-atlas layout: `tileIndexFor(block, face)` (per-face tile choice)
-  and `uvRectForTile(t)` (tile → UV rect). Pure layout math, no Three.js.
+- **`atlas.ts`** — tile selection: `tileIndexFor(block, face)` (per-face tile = texture-array
+  layer choice). Pure mapping, no Three.js, no grid math.
 - **`selfcheck.ts`** — `selfCheck()` re-derives the cheapest invariants at boot and throws
   if any is broken.
 
@@ -76,8 +76,11 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   `BufferGeometry`. The only file that touches both the core and Three.js geometry.
 - **`render/chunkedTerrain.ts`** — a `Group` of per-chunk meshes with `rebuildAround(x,y,z)`;
   thin wiring over the core's `buildChunkMesh` / `chunksAffectedByEdit`.
-- **`render/atlasTexture.ts`** — generates the block atlas as a procedural `DataTexture` from
-  `core/atlas`'s `TILE_COLOR` (deterministic grain + bevel, `NearestFilter`).
+- **`render/atlasTexture.ts`** — generates the block tiles as a procedural `DataArrayTexture`
+  (one layer per tile) from `core/atlas`'s `TILE_COLOR` (deterministic grain + bevel,
+  `NearestFilter`, `RepeatWrapping`).
+- **`render/terrainMaterial.ts`** — the terrain `MeshLambertMaterial`, with its texture fetch
+  redirected (via `onBeforeCompile`) to the tile array, indexed by the per-vertex `layer`.
 - **`main.ts`** — scene/camera/lights, the start overlay + pointer lock, keyboard/mouse
   input, the hotbar + HUD, block break/place, and the `requestAnimationFrame` loop.
 
@@ -128,18 +131,21 @@ locked). Clicks call break/place.
 
 ```
 World (Uint8Array)
-  └─ buildChunkMesh(cx,cy,cz)   per-chunk face culling → ChunkMesh { positions, normals, colors, uvs, indices, faceCount }
-       └─ geometryFromMesh()        typed arrays → THREE.BufferGeometry (position/normal/color/uv)
+  └─ buildChunkMesh(cx,cy,cz)   per-chunk face culling → ChunkMesh { positions, normals, colors, uvs, layers, indices, faceCount }
+       └─ geometryFromMesh()        typed arrays → THREE.BufferGeometry (position/normal/color/uv/layer)
             └─ ChunkedTerrain.group  one Mesh per non-empty chunk
-                 └─ MeshLambertMaterial { map: atlas, vertexColors: true }
+                 └─ terrainMaterial   MeshLambertMaterial sampling a tile ARRAY by per-vertex `layer`
 ```
 
 - The world is meshed as a grid of fixed **chunks** (`CHUNK_SIZE = 16`). `buildChunkMesh`
   culls each chunk against the **full** world, so seams are correct; the chunks reassemble
   into the exact whole-world mesh (`buildMesh` is the whole-world case of the same code).
-- Blocks are **textured** from a procedural atlas: the mesher emits per-face `uvs` into a
-  tile chosen by `core/atlas.tileIndexFor` (grass top/side/bottom, log end-grain), and
-  `render/atlasTexture` paints the `DataTexture`. The per-vertex `colors` carry a greyscale
+- Blocks are **textured** from a procedural tile **array** (`DataArrayTexture`, one layer per
+  tile): the mesher emits tile-local `uvs` plus a per-vertex `layer` = the tile chosen by
+  `core/atlas.tileIndexFor` (grass top/side/bottom, log end-grain), `render/atlasTexture`
+  paints the layers, and `render/terrainMaterial` redirects Lambert's texture fetch to sample
+  `texture(array, vec3(uv, layer))` (an array, not a 4×4 atlas grid, so a future greedy quad's
+  UV > 1 can repeat its tile cleanly). The per-vertex `colors` carry a greyscale
   `shade` = the per-face directional shade (top `1.0` … bottom `0.5`) **× per-vertex ambient
   occlusion** (corners/crevices darken; `vertexAO`), so the look is `texel × shade ×
 lighting` — the flat-shaded Classic style, now textured and contact-shaded.

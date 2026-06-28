@@ -16,13 +16,14 @@
 
 import type { World } from "./world";
 import { Block, isOpaque } from "./blocks";
-import { tileIndexFor, uvRectForTile } from "./atlas";
+import { tileIndexFor } from "./atlas";
 
 export interface ChunkMesh {
   readonly positions: Float32Array; // xyz per vertex
   readonly normals: Float32Array; // xyz per vertex
   readonly colors: Float32Array; // rgb per vertex — per-face shade × per-vertex AO (greyscale)
-  readonly uvs: Float32Array; // st per vertex — into the texture atlas
+  readonly uvs: Float32Array; // st per vertex — TILE-LOCAL [0,1] (a unit quad covers one tile)
+  readonly layers: Float32Array; // tile index per vertex — selects the tile (= texture-array layer)
   readonly indices: Uint32Array; // two triangles per quad
   /** Number of quads (visible faces) emitted. */
   readonly faceCount: number;
@@ -116,10 +117,12 @@ const FACES: readonly Face[] = [
  * against itself-type unless that neighbour is opaque.
  */
 /**
- * UV multipliers for the 4 corners of every face, in the same winding order as
- * `Face.corners`. (s, t) ∈ {0,1}² selects a corner of the face's atlas tile, so the
- * quad's corners 0..3 map to (u0,v1), (u1,v1), (u1,v0), (u0,v0). Pinned by the
- * mesher's golden-UV and per-face UV-census oracles.
+ * TILE-LOCAL UV for the 4 corners of every face, in the same winding order as
+ * `Face.corners`. (s, t) ∈ {0,1}² are the corners of the single tile the face
+ * samples; the tile itself is selected per-vertex by the `layers` channel (the
+ * tile index → texture-array layer). A unit quad therefore covers exactly one tile;
+ * a future greedy quad spanning N×M cells emits UVs up to (N, M) so the tile repeats.
+ * Pinned by the mesher's golden-UV and per-face UV/layer-census oracles.
  */
 const FACE_UV: readonly (readonly [number, number])[] = [
   [0, 1],
@@ -226,6 +229,7 @@ function meshRange(
   const normals: number[] = [];
   const colors: number[] = [];
   const uvs: number[] = [];
+  const layers: number[] = [];
   const indices: number[] = [];
   let faceCount = 0;
 
@@ -238,7 +242,7 @@ function meshRange(
         for (let fi = 0; fi < FACES.length; fi++) {
           if (!isFaceVisible(world, x, y, z, fi)) continue;
           const f = FACES[fi];
-          const r = uvRectForTile(tileIndexFor(id, fi));
+          const layer = tileIndexFor(id, fi);
           const baseVertex = positions.length / 3;
 
           const levels: number[] = [];
@@ -253,9 +257,11 @@ function meshRange(
             levels.push(level);
             const shade = f.shade * aoFactor(level);
             colors.push(shade, shade, shade);
-            // Map the 4 corners (in winding order) onto the tile's 4 UV corners.
+            // Tile-local UV: the 4 corners map straight onto the unit tile [0,1]²;
+            // the tile is chosen per-vertex by `layer`. (A greedy quad would scale s,t.)
             const [s, t] = FACE_UV[k];
-            uvs.push(r.u0 + s * (r.u1 - r.u0), r.v0 + t * (r.v1 - r.v0));
+            uvs.push(s, t);
+            layers.push(layer);
           }
 
           // Two triangles. Split along the diagonal joining the two BRIGHTER corners
@@ -292,6 +298,7 @@ function meshRange(
     normals: new Float32Array(normals),
     colors: new Float32Array(colors),
     uvs: new Float32Array(uvs),
+    layers: new Float32Array(layers),
     indices: new Uint32Array(indices),
     faceCount,
   };

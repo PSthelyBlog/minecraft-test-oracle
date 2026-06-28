@@ -16,6 +16,9 @@ export function geometryFromMesh(mesh: ChunkMesh): BufferGeometry {
   geo.setAttribute("normal", new Float32BufferAttribute(mesh.normals, 3));
   geo.setAttribute("color", new Float32BufferAttribute(mesh.colors, 3));
   geo.setAttribute("uv", new Float32BufferAttribute(mesh.uvs, 2));
+  // Per-vertex tile index → texture-array layer; consumed by the terrain material's
+  // injected `sampler2DArray` sampling (see main.ts). UVs above are tile-local.
+  geo.setAttribute("layer", new Float32BufferAttribute(mesh.layers, 1));
   geo.setIndex(new Uint32BufferAttribute(mesh.indices, 1));
   geo.computeBoundingSphere();
   return geo;
