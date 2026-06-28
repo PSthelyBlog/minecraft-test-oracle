@@ -255,3 +255,5 @@ runs. The fast checks (`typecheck · test · build`, `lint`) run on every PR reg
 
 Mirror this locally: there's no need to run `mutation:clean` or `smoke` for a docs/config
 change — run them when you touch `src/` or dependencies, exactly as CI does.
+
+<!-- skip-path CI verification; PR will be closed, not merged -->
