@@ -16,11 +16,18 @@ proven to actually catch bugs via **mutation testing**.
 
 ```bash
 npm install
+npm run hooks:install  # once — installs the pre-push mutation gate (see below)
 npm run dev        # play at http://localhost:5173
 npm test           # 109 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
+
+The **falsifiability gate runs locally**: `npm run hooks:install` sets up a git `pre-push`
+hook that runs `npm run mutation:clean` before any push touching code/tests, aborting it if a
+mutant survives (it is too slow — minutes — to gate every PR in CI). CI runs typecheck/test/
+build, lint, and the headless render check; the mutation score is published to the badge from
+a push-to-`main` job. See [docs/TESTING.md](docs/TESTING.md).
 
 **Controls:** click to lock the mouse · `WASD` move · mouse look · `Space` jump ·
 `Shift` sneak/descend · left-click break · right-click place · `1–9`/scroll select ·

@@ -17,7 +17,8 @@
     "format:check": "prettier --check .",
     "mutation": "stryker run",
     "mutation:clean": "node scripts/mutation-clean.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "hooks:install": "git config core.hooksPath scripts/hooks"
   },
   "dependencies": {
     "three": "^0.185.0"
