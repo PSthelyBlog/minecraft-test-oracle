@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-In progress: **v0.3 — world depth & rendering**.
+_Nothing yet._
+
+## [0.3.0] - 2026-06-28
+
+World depth & rendering.
 
 ### Added
 
@@ -18,8 +22,17 @@ In progress: **v0.3 — world depth & rendering**.
   round-trip census oracle. (#28)
 - **Deterministic trees** in terrain generation (`Log`/`Leaves`), placed by a seeded
   cell-grid pass and pinned by a golden hash plus a re-derived root-census bijection. (#30)
+- **Texture array**: blocks are textured from a procedural `DataArrayTexture` (one layer
+  per tile) sampled by a per-vertex `layer`, replacing the single 4×4 atlas — so a merged
+  quad can repeat its tile. The mesher emits tile-local UVs + a `layer`; the terrain
+  material redirects Lambert's texture fetch to the array via `onBeforeCompile`. (#31)
+- **Greedy meshing**: coplanar, same-tile, uniformly-lit faces merge into bigger quads
+  (≈55% fewer quads on the default terrain), pixel-identically. Pinned by an
+  area-conservation census (greedy quads decompose to exactly the visible unit faces), a
+  solid-cube golden, and tile/UV + AO censuses. (#31)
 - **Generated mutation-score badge**: the README badge is published to the Stryker
   dashboard from CI on push to `main`, replacing the hand-edited static value. (#32)
+- **`CHANGELOG.md`** and retroactive `v0.1` / `v0.2` tags + a v0.2 release. (#33)
 
 ### Changed
 
@@ -71,6 +84,7 @@ Oracle-hardened voxel core & renderer — the initial implementation.
 - **MIT LICENSE**. (#2)
 - Branch protection on `main` requiring the full check suite before merge. (#3)
 
-[unreleased]: https://github.com/PSthelyBlog/minecraft-test-oracle/compare/v0.2...HEAD
+[unreleased]: https://github.com/PSthelyBlog/minecraft-test-oracle/compare/v0.3...HEAD
+[0.3.0]: https://github.com/PSthelyBlog/minecraft-test-oracle/compare/v0.2...v0.3
 [0.2.0]: https://github.com/PSthelyBlog/minecraft-test-oracle/compare/v0.1...v0.2
 [0.1.0]: https://github.com/PSthelyBlog/minecraft-test-oracle/releases/tag/v0.1
