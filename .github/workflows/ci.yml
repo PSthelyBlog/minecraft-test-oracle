@@ -38,15 +38,14 @@ jobs:
       - name: Prettier format check
         run: npm run format:check
 
-  # The two heavy jobs (smoke ~1.3m, mutation ~3.5m) only do real work when the PR
-  # touches code or build inputs. For docs/config-only PRs the expensive steps are
-  # skipped and the job still reports SUCCESS in seconds — so the required check
-  # stays green without a job-level `if:` (a skipped job would leave the required
-  # check "pending" and block the merge). The detection is inlined per job on
-  # purpose: routing it through a shared `needs:` job would skip these required
-  # checks if that job ever failed. The same detection runs on push to main
-  # (diffing the pushed range), so a docs-only merge doesn't re-run the heavy gate
-  # on identical code — but any code/build change still gets the full gate on main.
+  # The smoke render check is the one heavy PR gate (~1.3m). It only does real work
+  # when the PR touches code or build inputs; for docs/config-only PRs the expensive
+  # steps are skipped and the job still reports SUCCESS in seconds — so the required
+  # check stays green without a job-level `if:` (a skipped required job would leave the
+  # check "pending" and block the merge). The detection is inlined on purpose: routing
+  # it through a shared `needs:` job would skip the required check if that job failed.
+  # Mutation testing is NOT a PR gate (it runs locally via the pre-push hook); the
+  # `mutation-badge` job below runs only on push to main to refresh the live badge.
 
   smoke:
     name: smoke (headless render check)
@@ -119,8 +118,16 @@ jobs:
         if: steps.changes.outputs.run != 'true'
         run: echo "Docs/config-only PR — render check not needed; required check passes."
 
-  mutation:
-    name: mutation testing (falsifiability gate)
+  # Mutation testing is NOT a PR gate. The falsifiability gate runs LOCALLY via the
+  # git pre-push hook (scripts/hooks/pre-push, installed once with `npm run hooks:install`):
+  # it runs `npm run mutation:clean` before a push touching code/test/config and blocks the
+  # push if the score drops below threshold. This job runs ONLY on push to main, purely to
+  # (a) refresh the live Stryker-dashboard badge and (b) act as a post-merge backstop. It
+  # blocks nothing (main is push-only via merges) and is not a required check, so it does
+  # not slow PRs down. Docs/config-only pushes to main skip the heavy step.
+  mutation-badge:
+    name: mutation badge (push to main)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -129,16 +136,9 @@ jobs:
       - name: Detect code/build changes
         id: changes
         run: |
-          # Pick the diff range for this event (PR: base→head; push: before→after).
-          # Fall back to the full gate on anything unexpected (new branch, force-push,
-          # unfetched base) so we never under-run.
-          case "${{ github.event_name }}" in
-            pull_request) base="${{ github.event.pull_request.base.sha }}"; head="${{ github.event.pull_request.head.sha }}" ;;
-            push)         base="${{ github.event.before }}";                head="${{ github.sha }}" ;;
-            *)            echo "run=true" >>"$GITHUB_OUTPUT"; exit 0 ;;
-          esac
+          base="${{ github.event.before }}"; head="${{ github.sha }}"
           if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-            echo "No usable base ($base) — running the full gate."
+            echo "No usable base ($base) — running mutation."
             echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
           fi
           files=$(git diff --name-only "$base" "$head")
@@ -146,7 +146,7 @@ jobs:
           if echo "$files" | grep -qE '^(src/|test/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
             echo "run=true" >>"$GITHUB_OUTPUT"
           else
-            echo "No code/build changes — falsifiability gate will be skipped."
+            echo "No code/build changes — skipping the badge refresh."
             echo "run=false" >>"$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-node@v6
@@ -156,26 +156,15 @@ jobs:
           cache: npm
       - run: npm ci
         if: steps.changes.outputs.run == 'true'
-      # Fails if the mutation score drops below the `break` threshold (70) in
-      # stryker.config.json — i.e. if a change introduces new oracle blind spots.
-      # On push to main (and only there) we also enable the `dashboard` reporter,
-      # which uploads the score to the Stryker dashboard so the README badge tracks
-      # the authoritative number automatically (no more hand-syncing). PRs run the
-      # gate without uploading — to avoid per-branch noise and so a fork PR (no
-      # secret) is never gated on the dashboard. The reporter catches an
-      # upload/auth error without failing the build, but skipping it on PRs is
-      # cleaner. STRYKER_DASHBOARD_API_KEY is a repo secret.
-      - name: StrykerJS (falsifiability gate)
+      # Publish the authoritative score to the Stryker dashboard (updates the README
+      # badge). Still honours the break threshold (70) as a post-merge backstop, but it
+      # gates nothing — the gate is the local pre-push hook. STRYKER_DASHBOARD_API_KEY is
+      # a repo secret; the reporter catches an upload/auth error without failing the build.
+      - name: StrykerJS + dashboard
         if: steps.changes.outputs.run == 'true'
         env:
           STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
-        run: |
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "Push to main — publishing the score to the Stryker dashboard."
-            npm run mutation -- --reporters progress,clear-text,json,html,dashboard
-          else
-            npm run mutation
-          fi
+        run: npm run mutation -- --reporters progress,clear-text,json,html,dashboard
       - name: Upload mutation report
         if: steps.changes.outputs.run == 'true' && always()
         uses: actions/upload-artifact@v7
@@ -183,6 +172,3 @@ jobs:
           name: mutation-report
           path: reports/mutation/
           if-no-files-found: ignore
-      - name: Skipped (no code/build changes)
-        if: steps.changes.outputs.run != 'true'
-        run: echo "Docs/config-only PR — falsifiability gate not needed; required check passes."

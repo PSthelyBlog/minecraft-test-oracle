@@ -132,19 +132,20 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)             |
 | **overall**      |     **~95.6%** | 109 tests across 15 files                                                         |
 
-The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. The
-run fails CI below 70.
+The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
+below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
+badge job as a backstop).
 
 ### The README badge is generated, not hand-synced
 
 The README **Mutation score** badge is no longer a hand-edited static value. On every push
-to `main`, the CI mutation job runs Stryker with the **`dashboard` reporter** enabled (an
-extra `--reporters …,dashboard` only on `main`, gated on the `STRYKER_DASHBOARD_API_KEY`
-repo secret) and uploads the full report to the
+to `main`, the `mutation badge` CI job runs Stryker with the **`dashboard` reporter** enabled
+(`--reporters …,dashboard`, using the `STRYKER_DASHBOARD_API_KEY` repo secret) and uploads the
+full report to the
 [Stryker dashboard](https://dashboard.stryker-mutator.io/reports/github.com/PSthelyBlog/minecraft-test-oracle/main).
 The badge points at the dashboard's shields **endpoint** (`badge-api.stryker-mutator.io/…/main`),
-so it tracks the authoritative score automatically. PR builds run the same gate **without**
-uploading (the reporter is omitted off `main`), so a fork PR is never gated on the secret.
+so it tracks the authoritative score automatically. This is the _only_ mutation run left in CI
+(push-to-`main` only) and it gates nothing — the falsifiability gate is the local pre-push hook.
 The per-module table below is still maintained by hand — it is documentation of _where_ the
 survivors are, not the headline number.
 
@@ -312,37 +313,39 @@ verified in CI, not just on a developer's Mac.
 > Rule of thumb: if you can delete a line of the source and the suite stays green, you don't
 > have an oracle for that line yet.
 
-## CI suggestion
+## Where the falsifiability gate runs: locally, via a pre-push hook
 
-```yaml
-# .github/workflows/ci.yml (sketch — see the real file for the full smoke job)
-- run: npm ci
-- run: npm run typecheck
-- run: npm test
-- run: npm run mutation # fails if score < break threshold (70)
-# render check: build, serve, boot in headless Chromium, census the framebuffer
-- run: npx playwright install --with-deps chromium
-- run: npm run build
-- run: npm run preview -- --port 4173 --strictPort &
-- run: URL=http://localhost:4173/ npm run smoke
+The mutation test is the slowest check (minutes, and **9–23 min on shared CI runners** — the
+score is deterministic, the wall-clock is not). So it is **not** a CI/PR gate. It runs
+**locally**, as a git `pre-push` hook, before the code ever reaches a PR:
+
+```bash
+npm run hooks:install   # once per clone — points core.hooksPath at scripts/hooks
 ```
 
-The mutation step is what keeps the suite honest over time: as the code changes, a dropping
-score means new blind spots. The smoke job does the same for the shell — if the render ever
-silently breaks, the pixel census fails CI.
+`scripts/hooks/pre-push` then runs **`npm run mutation:clean`** before any push whose commits
+touch code/test/build inputs (`src/`, `test/`, `scripts/`, the lockfile/manifest, the
+`*.config.*` / `tsconfig`, `index.html`, or `ci.yml`) and **aborts the push** if the score
+drops below the break threshold (70) or a new mutant survives. Docs-only pushes skip it; bypass
+a single push with `SKIP_MUTATION=1 git push` (use sparingly — that is the whole guarantee).
 
-### Heavy jobs run only when they can matter
+So the loop is: write an oracle → `npm test` (green) → **`git push`** (the hook runs the
+falsifiability gate locally) → fix any survivor → push again. Same gate as before, off the
+critical path of every PR.
 
-The two slow jobs — **mutation** (~3.5 min) and **smoke** (~1.3 min) — only do real work
-when a PR touches code or build inputs (`src/`, `scripts/`, the lockfile/manifest, the
-`*.config.*` / `tsconfig`, `index.html`, or `ci.yml` itself). On a **docs/config-only PR**
-(Markdown, the screenshot, `dependabot.yml`, the LICENSE…) their expensive steps are skipped
-and the job still reports **success in seconds**, so the required check stays green. This is
-done with an inline `git diff` step that gates the steps (not a job-level `if:`, which would
-leave a required check "pending" and block the merge). The **same detection runs on push to
-`main`** (diffing the pushed range), so a docs-only merge doesn't re-run the ~9-min heavy gate
-on byte-identical code — but any code/build change still gets the full authoritative gate on
-`main`. The fast checks (`typecheck · test · build`, `lint`) run on every PR and push regardless.
+### What CI still does
 
-Mirror this locally: there's no need to run `mutation:clean` or `smoke` for a docs/config
-change — run them when you touch `src/` or dependencies, exactly as CI does.
+| Check                          | When                    | Gate?                       |
+| ------------------------------ | ----------------------- | --------------------------- |
+| `typecheck · test · build`     | every PR + push         | **required**                |
+| `lint (eslint · prettier)`     | every PR + push         | **required**                |
+| `smoke (headless render check)`| every PR + push¹        | **required**                |
+| `mutation badge (push to main)`| push to `main` only¹    | no — refreshes the badge    |
+
+¹ The two heavy jobs only do real work when the change touches code/build inputs (an inline
+`git diff` step); a docs/config-only change skips the expensive steps. **smoke** stays a
+required PR gate — it is the only place WebGL rendering is verified (a missing geometry upload
+would clear the canvas to bare sky), and it keeps the "required check must still report on a
+docs PR" trick (skip the steps, not the job). **mutation** now runs only on push to `main`, and
+**only to publish the live dashboard badge** (plus a post-merge backstop on the break
+threshold) — it gates nothing, so a slow runner never blocks a merge.
