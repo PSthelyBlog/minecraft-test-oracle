@@ -28,7 +28,19 @@ page.on("console", (m) => {
 page.on("pageerror", (e) => errors.push("PAGEERROR: " + e.message));
 
 await page.goto(URL, { waitUntil: "networkidle" });
-await page.waitForTimeout(1500); // let a few frames render
+// Wait for the CONDITION, not a fixed sleep: the player spawns a few blocks up and
+// falls under gravity, so a hard 1500ms wait races the landing on a slow runner and
+// flakily reads "air". Poll the HUD until physics has resolved the player onto the
+// ground (which also proves the frame loop ran for many frames). If it never lands —
+// a real regression — this times out and the onGround check below reports the failure
+// with the usual census output rather than throwing here.
+await page
+  .waitForFunction(() => /ground/.test(document.getElementById("hud")?.innerText ?? ""), null, {
+    timeout: 15000,
+    polling: 100,
+  })
+  .catch(() => {});
+await page.waitForTimeout(250); // brief settle so the screenshot isn't mid-frame
 
 // HUD text proves: boot self-check passed (no throw), terrain generated, the frame
 // loop runs, and physics resolved the player onto the ground.
