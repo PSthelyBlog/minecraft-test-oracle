@@ -72,7 +72,7 @@ jobs:
           fi
           files=$(git diff --name-only "$base" "$head")
           echo "Changed files:"; echo "$files"
-          if echo "$files" | grep -qE '^(src/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
+          if echo "$files" | grep -qE '^(src/|test/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
             echo "run=true" >>"$GITHUB_OUTPUT"
           else
             echo "No code/build changes — render check will be skipped."
@@ -143,7 +143,7 @@ jobs:
           fi
           files=$(git diff --name-only "$base" "$head")
           echo "Changed files:"; echo "$files"
-          if echo "$files" | grep -qE '^(src/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
+          if echo "$files" | grep -qE '^(src/|test/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
             echo "run=true" >>"$GITHUB_OUTPUT"
           else
             echo "No code/build changes — falsifiability gate will be skipped."
