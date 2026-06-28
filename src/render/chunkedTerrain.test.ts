@@ -7,43 +7,73 @@ import { buildMesh } from "../core/mesher";
 import { ChunkedTerrain } from "./chunkedTerrain";
 
 /**
- * The chunk manager's contract: the union of its per-chunk geometries must equal
- * the whole-world mesh, AND an incremental `rebuildAround` after an edit must
- * leave the scene identical to a from-scratch rebuild. A manager that rebuilt the
- * wrong chunks (or missed one) would pass a screenshot smoke test yet leave a
+ * The chunk manager's contract: the union of its per-chunk geometries must cover
+ * exactly the whole-world mesh, AND an incremental `rebuildAround` after an edit
+ * must leave the scene identical to a from-scratch rebuild. A manager that rebuilt
+ * the wrong chunks (or missed one) would pass a screenshot smoke test yet leave a
  * stale seam — so we pin it as a round-trip against the independent whole-world
  * mesher. (Three.js geometry is pure JS; no WebGL context needed.)
+ *
+ * Because the chunks are GREEDY-meshed (coplanar faces merged into bigger quads),
+ * the comparison is in UNIT-FACE space: every quad is decomposed by its normal into
+ * the `cell,faceDir` unit faces it covers, so a merged quad and the naive mesher's
+ * unit faces compare equal exactly when they cover the same surface.
  */
 
 const MAT = new MeshBasicMaterial();
 
-/** Canonical sorted set of faces (4 world-space corners each) carried by the group. */
+const normalToDir = (nx: number, ny: number, nz: number): number =>
+  nx === 1 ? 0 : nx === -1 ? 1 : ny === 1 ? 2 : ny === -1 ? 3 : nz === 1 ? 4 : 5;
+const faceAxes = (d: number): { a: number; u: number; v: number } => {
+  const a = d < 2 ? 0 : d < 4 ? 1 : 2;
+  const [u, v] = a === 0 ? [1, 2] : a === 1 ? [0, 2] : [0, 1];
+  return { a, u, v };
+};
+
+/** Decompose quads (position + normal arrays, 4 verts/quad) into `cell,dir` unit faces. */
+function unitFaces(pos: ArrayLike<number>, norm: ArrayLike<number>, quadCount: number): string[] {
+  const keys: string[] = [];
+  for (let f = 0; f < quadCount; f++) {
+    const n = [norm[f * 12], norm[f * 12 + 1], norm[f * 12 + 2]];
+    const d = normalToDir(n[0], n[1], n[2]);
+    const { a, u, v } = faceAxes(d);
+    const cs = [0, 1, 2, 3].map((k) => [
+      pos[(f * 4 + k) * 3],
+      pos[(f * 4 + k) * 3 + 1],
+      pos[(f * 4 + k) * 3 + 2],
+    ]);
+    const planeA = cs[0][a];
+    const umin = Math.min(...cs.map((c) => c[u]));
+    const vmin = Math.min(...cs.map((c) => c[v]));
+    const w = Math.max(...cs.map((c) => c[u])) - umin;
+    const h = Math.max(...cs.map((c) => c[v])) - vmin;
+    for (let i = 0; i < w; i++)
+      for (let j = 0; j < h; j++) {
+        const cell = [0, 0, 0];
+        cell[a] = planeA - (n[a] > 0 ? 1 : 0);
+        cell[u] = umin + i;
+        cell[v] = vmin + j;
+        keys.push(`${cell[0]},${cell[1]},${cell[2]},${d}`);
+      }
+  }
+  return keys;
+}
+
+/** The unit faces the group's (greedy) geometries cover, sorted. */
 function groupFaceKeys(terrain: ChunkedTerrain): string[] {
   const keys: string[] = [];
   for (const child of terrain.group.children) {
-    const pos = (child as Mesh).geometry.getAttribute("position");
-    const a = pos.array;
-    for (let f = 0; f < pos.count / 4; f++) {
-      const base = f * 4 * 3;
-      const parts: number[] = [];
-      for (let k = 0; k < 12; k++) parts.push(a[base + k]);
-      keys.push(parts.join(","));
-    }
+    const geo = (child as Mesh).geometry;
+    const pos = geo.getAttribute("position");
+    keys.push(...unitFaces(pos.array, geo.getAttribute("normal").array, pos.count / 4));
   }
   return keys.sort();
 }
 
-/** The same canonical set, derived independently from the whole-world mesher. */
+/** The same unit faces, derived independently from the whole-world (naive) mesher. */
 function wholeFaceKeys(w: World): string[] {
   const m = buildMesh(w);
-  const keys: string[] = [];
-  for (let f = 0; f < m.faceCount; f++) {
-    const base = f * 4 * 3;
-    const parts: number[] = [];
-    for (let k = 0; k < 12; k++) parts.push(m.positions[base + k]);
-    keys.push(parts.join(","));
-  }
-  return keys.sort();
+  return unitFaces(m.positions, m.normals, m.faceCount).sort();
 }
 
 describe("ChunkedTerrain oracle", () => {

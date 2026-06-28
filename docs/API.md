@@ -162,6 +162,10 @@ const CHUNK_SIZE = 16
 chunkDims(world: World, chunkSize?): { nx, ny, nz }                       // chunk count per axis (ceil)
 buildChunkMesh(world: World, cx, cy, cz, chunkSize?): ChunkMesh           // mesh one chunk, culling across borders
 chunksAffectedByEdit(world: World, x, y, z, chunkSize?): [cx,cy,cz][]     // chunks to rebuild for an edit at (x,y,z)
+
+// Greedy meshing (merge coplanar, same-tile, uniformly-lit faces into bigger quads)
+buildGreedyMesh(world: World): ChunkMesh                                  // merged counterpart of buildMesh
+buildGreedyChunkMesh(world: World, cx, cy, cz, chunkSize?): ChunkMesh     // merged counterpart of buildChunkMesh (the renderer uses this)
 ```
 
 A face is emitted iff the neighbour **across it** is not opaque (air, glass, leaves, water,
@@ -174,6 +178,14 @@ partial chunk) but culls against the full world, so the chunks tile the world an
 into the exact whole-world mesh — no seams. Vertices are emitted in **world** coordinates, so
 each chunk's geometry sits at the origin.
 
+`buildGreedyMesh` / `buildGreedyChunkMesh` merge coplanar, adjacent faces that share a tile
+(layer) **and** are uniformly lit (all four AO corners equal) into maximal rectangles, so a
+flat region becomes a few big quads (≈55% fewer quads on the default terrain). Faces whose AO
+varies are emitted 1×1 with their exact per-corner AO, so no shading detail is lost. The
+merged quad's tile-local UVs run `0..w`/`0..h` so the tile **repeats** once per cell (the
+texture-array layer is repeat-wrapped). The renderer (`ChunkedTerrain`) uses the greedy chunk
+mesher; the naive `buildMesh` stays as the oracle reference.
+
 > Invariants: face count equals an independent neighbour census; a face is culled by the
 > neighbour in _its own_ direction (not the opposite); quad winding faces outward (cross of
 > the first triangle aligns with the stored normal); buffer sizes stay consistent
@@ -184,6 +196,10 @@ faceCount*6`).
 n·size`); `chunksAffectedByEdit` reports every chunk an edit can change.
 > **Textures:** each face's 4 UVs are the corners of the unit tile `[0,1]²`, and every vertex's
 > `layer` equals `tileIndexFor(block, face)` — the tile (= texture-array layer) it samples.
+> **Greedy:** the unit faces a greedy mesh (whole-world and per-chunk) decomposes into equal the
+> visible-face definition _exactly_ (area-conservation — no overlap, gap, or stray); a solid
+> cube merges to 6 quads; every greedy quad tiles one unit tile per covered cell and reproduces
+> each covered cell's ambient occlusion (so a merge never crosses an AO seam).
 
 ---
 

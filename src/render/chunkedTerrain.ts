@@ -10,7 +10,7 @@
 
 import { Group, Mesh, type Material } from "three";
 import type { World } from "../core/world";
-import { buildChunkMesh, chunkDims, chunksAffectedByEdit, CHUNK_SIZE } from "../core/mesher";
+import { buildGreedyChunkMesh, chunkDims, chunksAffectedByEdit, CHUNK_SIZE } from "../core/mesher";
 import { geometryFromMesh } from "./chunkGeometry";
 
 export class ChunkedTerrain {
@@ -45,7 +45,7 @@ export class ChunkedTerrain {
       old.geometry.dispose();
       this.meshes[i] = null;
     }
-    const mesh = buildChunkMesh(this.world, cx, cy, cz, this.chunkSize);
+    const mesh = buildGreedyChunkMesh(this.world, cx, cy, cz, this.chunkSize);
     if (mesh.faceCount === 0) return; // empty chunk → no draw call
     const m = new Mesh(geometryFromMesh(mesh), this.material);
     this.meshes[i] = m;

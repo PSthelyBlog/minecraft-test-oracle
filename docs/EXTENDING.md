@@ -144,10 +144,32 @@ The oracles that pin it (`src/core/mesher.test.ts`, `src/render/chunkedTerrain.t
 - **Edit-impact differential** — every chunk whose mesh actually changes after an edit is in
   `chunksAffectedByEdit` (so the renderer never leaves a stale seam).
 - **Incremental == full** — `ChunkedTerrain` after a batch of `rebuildAround` edits equals a
-  from-scratch whole-world mesh.
+  from-scratch whole-world mesh (now compared in **unit-face** space, since the chunks are
+  greedy-meshed).
 
 To change the chunk size, edit `CHUNK_SIZE`. (`chunksAffectedByEdit`'s symmetric ± offset
 list makes its `coord ± delta` sign mutants equivalent — see docs/TESTING.md.)
+
+### Greedy meshing
+
+`buildGreedyChunkMesh` (what `ChunkedTerrain` actually draws) merges coplanar, adjacent faces
+that share a tile (layer) **and** are uniformly lit (all four AO corners equal) into maximal
+rectangles — ≈55% fewer quads on the default terrain. Faces whose AO varies stay 1×1 with
+their exact per-corner shading, so nothing is lost; merged quads tile-local UVs run `0..w`/`0..h`
+so the tile **repeats** once per cell (the Phase-A texture array is repeat-wrapped). The naive
+`buildMesh` is kept as the independent oracle reference.
+
+The oracles that pin it (`src/core/mesher.test.ts`, the `greedy meshing oracle` block):
+
+- **Area-conservation census** (headline) — the unit faces a greedy mesh (whole-world and
+  per-chunk) decomposes into equal the visible-face definition **exactly**: no overlap, gap,
+  or stray. Re-derived from the culling rule, independent of either mesher.
+- **Merging-happened golden** — a solid n³ cube merges each side to one quad (6 quads, not
+  6·n²), so a no-op "greedy" that never merges can't pass.
+- **Tile/UV census** — every greedy quad samples one tile and tiles it once per covered cell
+  (UV corners `{0,M}×{0,N}` with `M·N == w·h`), with `layer == tileIndexFor` for each cell.
+- **AO census** — every greedy quad reproduces each covered cell's ambient occlusion, so a
+  merge never crosses an AO seam.
 
 ## Things to keep invariant
 

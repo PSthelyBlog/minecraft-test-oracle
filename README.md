@@ -17,7 +17,7 @@ proven to actually catch bugs via **mutation testing**.
 ```bash
 npm install
 npm run dev        # play at http://localhost:5173
-npm test           # 101 oracle tests (Vitest + fast-check)
+npm test           # 109 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
@@ -48,7 +48,7 @@ src/core/      pure, dependency-free, oracle-tested logic
   blocks.ts      block registry: id → {solid, opaque, colour}
   world.ts       fixed-size voxel store; coord↔index is the single source of truth
   raycast.ts     DDA voxel traversal for block picking (break/place)
-  mesher.ts      face-culled mesh builder (whole-world + per-chunk, seam-correct) + UVs
+  mesher.ts      face-culled mesh builder (per-chunk, seam-correct) + greedy merging + UVs
   atlas.ts       tile selection: (block, face) → tile index (= texture-array layer)
   terrain.ts     deterministic seeded terrain generation
   physics.ts     AABB vs voxel-grid collision, resolved per axis
