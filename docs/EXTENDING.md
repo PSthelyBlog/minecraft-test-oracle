@@ -8,7 +8,7 @@ run `npm test` then `npm run mutation`.
 
 1. **Register it** in `src/core/blocks.ts`:
    ```ts
-   export const Block = { /* ...existing... */ Water: 13, Snow: 14 } as const;
+   export const Block = { /* ...existing... */ Glowstone: 14, Snow: 15 } as const;
 
    export const BLOCKS = {
      // ...existing...
@@ -17,6 +17,7 @@ run `npm test` then `npm run mutation`.
        name: "Snow",
        solid: true,
        opaque: true,
+       emission: 0, // 0..15 — only light sources emit (e.g. Glowstone is 15)
        color: rgb(245, 245, 250),
      },
    };
@@ -24,15 +25,18 @@ run `npm test` then `npm run mutation`.
    Keep ids **contiguous from 0** (the world is a `Uint8Array`).
 2. **Make it placeable** by adding it to `HOTBAR` (omit if it should be terrain-only).
 3. **Update the oracles** in `src/core/blocks.test.ts`:
-   - add the block to the `FACETS` census table (`{ name, solid, opaque }`), and
-   - the colour golden hash will change — run the test, copy the new `Received` hash into the
-     `expect(...).toBe(...)`. (Re-pinning a golden after an intentional change is the normal
-     workflow.)
+   - add the block to the `FACETS` census table (`{ name, solid, opaque, emission }`), and
+   - the colour golden hash will change — **re-derive** it (the same FNV walk over the intended
+     colours, independent of `BLOCKS`) and paste it into the `expect(...).toBe(...)`. Re-pinning
+     a golden after an intentional change is the normal workflow.
 4. `npm test`. The facet census will fail until step 3 is done — that's the oracle doing its
    job.
+5. **Add its atlas tile** (see _Textures_ below): a `Tile` slot + `TILE_COLOR` + `BLOCK_TILE`
+   entry, and bump `TILE_COUNT`.
 
 **Facet meaning:** `solid` → the player collides with it; `opaque` → it hides the touching
-face of neighbours (set `false` for anything see-through like glass/leaves/water).
+face of neighbours (set `false` for anything see-through like glass/leaves/water); `emission` →
+light level `0..15` it radiates (drives block-light propagation).
 
 ## Use it in terrain
 

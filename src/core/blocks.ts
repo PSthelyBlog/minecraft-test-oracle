@@ -28,6 +28,7 @@ export const Block = {
   Brick: 11,
   Bedrock: 12,
   Water: 13,
+  Glowstone: 14,
 } as const;
 
 export type BlockKey = keyof typeof Block;
@@ -39,6 +40,8 @@ export interface BlockDef {
   readonly solid: boolean;
   /** Fully hides the touching face of an adjacent block (used for face culling). */
   readonly opaque: boolean;
+  /** Light this block emits, `0` (none) … `15` (full). Drives block-light propagation. */
+  readonly emission: number;
   /** Base colour as [r, g, b] in 0..1. */
   readonly color: readonly [number, number, number];
 }
@@ -47,14 +50,25 @@ function rgb(r: number, g: number, b: number): readonly [number, number, number]
   return [r / 255, g / 255, b / 255];
 }
 
-/** Definitions indexed by block id. `BLOCKS[id]` is total over all defined ids. */
+/**
+ * Definitions indexed by block id. `BLOCKS[id]` is total over all defined ids.
+ * `emission` is `0` for every block except light sources (Glowstone).
+ */
 export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
-  [Block.Air]: { id: Block.Air, name: "Air", solid: false, opaque: false, color: rgb(0, 0, 0) },
+  [Block.Air]: {
+    id: Block.Air,
+    name: "Air",
+    solid: false,
+    opaque: false,
+    emission: 0,
+    color: rgb(0, 0, 0),
+  },
   [Block.Stone]: {
     id: Block.Stone,
     name: "Stone",
     solid: true,
     opaque: true,
+    emission: 0,
     color: rgb(127, 127, 127),
   },
   [Block.Grass]: {
@@ -62,6 +76,7 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Grass",
     solid: true,
     opaque: true,
+    emission: 0,
     color: rgb(95, 159, 53),
   },
   [Block.Dirt]: {
@@ -69,6 +84,7 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Dirt",
     solid: true,
     opaque: true,
+    emission: 0,
     color: rgb(134, 96, 67),
   },
   [Block.Cobblestone]: {
@@ -76,6 +92,7 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Cobblestone",
     solid: true,
     opaque: true,
+    emission: 0,
     color: rgb(105, 105, 105),
   },
   [Block.Planks]: {
@@ -83,6 +100,7 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Planks",
     solid: true,
     opaque: true,
+    emission: 0,
     color: rgb(157, 128, 79),
   },
   [Block.Sand]: {
@@ -90,6 +108,7 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Sand",
     solid: true,
     opaque: true,
+    emission: 0,
     color: rgb(219, 207, 142),
   },
   [Block.Gravel]: {
@@ -97,14 +116,23 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Gravel",
     solid: true,
     opaque: true,
+    emission: 0,
     color: rgb(136, 126, 125),
   },
-  [Block.Log]: { id: Block.Log, name: "Log", solid: true, opaque: true, color: rgb(102, 81, 49) },
+  [Block.Log]: {
+    id: Block.Log,
+    name: "Log",
+    solid: true,
+    opaque: true,
+    emission: 0,
+    color: rgb(102, 81, 49),
+  },
   [Block.Leaves]: {
     id: Block.Leaves,
     name: "Leaves",
     solid: true,
     opaque: false,
+    emission: 0,
     color: rgb(60, 120, 40),
   },
   [Block.Glass]: {
@@ -112,6 +140,7 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Glass",
     solid: true,
     opaque: false,
+    emission: 0,
     color: rgb(200, 230, 240),
   },
   [Block.Brick]: {
@@ -119,6 +148,7 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Brick",
     solid: true,
     opaque: true,
+    emission: 0,
     color: rgb(150, 80, 65),
   },
   [Block.Bedrock]: {
@@ -126,6 +156,7 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Bedrock",
     solid: true,
     opaque: true,
+    emission: 0,
     color: rgb(40, 40, 40),
   },
   [Block.Water]: {
@@ -133,7 +164,16 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     name: "Water",
     solid: false,
     opaque: false,
+    emission: 0,
     color: rgb(40, 90, 200),
+  },
+  [Block.Glowstone]: {
+    id: Block.Glowstone,
+    name: "Glowstone",
+    solid: true,
+    opaque: true,
+    emission: 15,
+    color: rgb(248, 226, 120),
   },
 };
 
@@ -149,6 +189,7 @@ export const HOTBAR: readonly BlockId[] = [
   Block.Sand,
   Block.Glass,
   Block.Brick,
+  Block.Glowstone,
 ];
 
 export function blockDef(id: BlockId): BlockDef {
@@ -161,6 +202,11 @@ export function isSolid(id: BlockId): boolean {
 
 export function isOpaque(id: BlockId): boolean {
   return blockDef(id).opaque;
+}
+
+/** Light level this block emits, `0`…`15` (`0` for everything but light sources). */
+export function emissionOf(id: BlockId): number {
+  return blockDef(id).emission;
 }
 
 export function isAir(id: BlockId): boolean {
