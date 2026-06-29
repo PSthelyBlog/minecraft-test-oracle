@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.4.0] - 2026-06-29
+
+Lighting & fluids.
+
+### Added
+
+- **Glowstone**, a light-emitting block: every `BlockDef` gains an `emission` field
+  (`0`…`15`) with an `emissionOf` accessor, plus an atlas tile and a hotbar slot. (#62)
+- **Block-light propagation** (`core/light.ts`): a multi-source BFS flood-fill from
+  emitters, attenuating one level per step through non-opaque cells (opaque blocks cast
+  shadow). A max-fixpoint, so order-independent; pinned by an independent relaxation, an
+  open-air Manhattan-distance golden, a shadow metamorphic, and invariants. (#63)
+- **Skylight propagation** (`computeSkyLight`): every cell open to the sky is full, and
+  the same flood spreads it down + sideways — a vertical drop through open air never
+  attenuates (the Classic rule). `computeLight` combines block + sky as a cell-wise max.
+  Pinned by an independent relaxation, closed-form goldens (a lone roof casts an
+  exactly-14 shadow column), and a seeded-terrain golden. (#64)
+- **Light-aware meshing**: the mesher dims each face by the light at the open cell it
+  looks into, folding `lightFactor(light)` into the per-vertex colour
+  (`texel × faceShade × AO × light`). Omitting the light field is byte-identical to the
+  unlit mesh (a strict extension). Pinned by a light-folded colour census, a
+  monotonicity metamorphic, and a Glowstone-brightens-a-shadowed-face metamorphic. (#65)
+- **Incremental light updates** (`updateBlockLight` / `updateSkyLight` / `updateLight`):
+  a two-pass remove/add flood applies a single edit in place and returns the exact
+  changed cells, so the renderer remeshes only the affected chunks. Pinned by a
+  differential oracle (incremental == from-scratch after every edit of a random
+  sequence) and per-field / combined changed-set censuses. (#66)
+- **Water flow** (`core/water.ts`): a deterministic cellular automaton giving a per-cell
+  level `0`…`7` — sources fall full and spread one less per step, never up, the least
+  fixpoint of the rule. Pinned by the fixpoint condition itself, an independent
+  relaxation, a reachability invariant, floor/waterfall goldens, and a damming
+  metamorphic. (#67)
+- **Translucent water rendering** (`core/waterMesh.ts`): the water field is drawn as a
+  separate alpha-blended pass — a watered cell's face shows only where it meets open air
+  — so you see the lakebed through the surface. Pinned by a where-census, a shade census,
+  and outward-winding (100% mutation score). (#74)
+
+### Changed
+
+- The **falsifiability gate moved out of CI** to a local `git` pre-push hook
+  (`npm run hooks:install`) that runs `npm run mutation:clean` and aborts on a score
+  below 70 — merges now run only the ~1.5-min fast checks. (#61)
+- The **mutation-score badge is decoupled** from push-to-`main`: a dedicated workflow
+  refreshes the Stryker-dashboard badge only on a published release or manual dispatch. (#68)
+
 ## [0.3.0] - 2026-06-28
 
 World depth & rendering.
