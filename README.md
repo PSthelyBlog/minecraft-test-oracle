@@ -59,6 +59,7 @@ src/core/      pure, dependency-free, oracle-tested logic
   mesher.ts      face-culled mesh builder (per-chunk, seam-correct) + greedy merging + UVs
   atlas.ts       tile selection: (block, face) → tile index (= texture-array layer)
   light.ts       block-light + skylight propagation (shared BFS flood-fill)
+  water.ts       water flow as a deterministic cellular automaton (level field)
   terrain.ts     deterministic seeded terrain generation
   physics.ts     AABB vs voxel-grid collision, resolved per axis
   selfcheck.ts   boot self-check: re-derives cheap invariants and THROWS at startup
