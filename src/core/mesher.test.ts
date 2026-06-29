@@ -103,6 +103,20 @@ describe("mesher oracle", () => {
     }
   });
 
+  // EXCLUSION: water is drawn by the separate translucent water mesh, so the terrain
+  // mesher emits NO geometry for a Water cell — yet water stays non-opaque, so it still
+  // reveals the faces of solid blocks behind it (you see the lakebed through it).
+  test("water blocks are excluded from the terrain mesh but still reveal neighbours", () => {
+    const lone = new World(3, 3, 3);
+    lone.set(1, 1, 1, Block.Water);
+    expect(buildMesh(lone).faceCount).toBe(0); // water itself contributes nothing
+
+    const submerged = new World(3, 3, 3);
+    submerged.set(1, 1, 1, Block.Stone);
+    submerged.set(2, 1, 1, Block.Water); // a water neighbour does not cull the stone's +X face
+    expect(buildMesh(submerged).faceCount).toBe(6); // all six stone faces still show
+  });
+
   // CENSUS: the mesher's face count equals the independent definition for any world.
   test("face count matches the independent neighbour census", () => {
     const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves, Block.Grass);

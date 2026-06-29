@@ -29,7 +29,7 @@ import { raycast } from "./core/raycast";
 import { boxIntersectsSolid } from "./core/physics";
 import { directionFromYawPitch, type Vec3 } from "./core/math";
 import { ChunkedTerrain } from "./render/chunkedTerrain";
-import { buildTerrainMaterial } from "./render/terrainMaterial";
+import { buildTerrainMaterial, buildWaterMaterial } from "./render/terrainMaterial";
 import { selfCheck } from "./core/selfcheck";
 import { stepMovement, type PlayerState, type MovementTuning } from "./game/movement";
 
@@ -105,8 +105,10 @@ scene.add(sun);
 // shade × ambient occlusion × propagated light (block + sky), so the final look is
 // texel × that baked vertex colour (× the scene's hemisphere/sun lights).
 const terrainMaterial = buildTerrainMaterial();
-const terrain = new ChunkedTerrain(world, terrainMaterial);
+const waterMaterial = buildWaterMaterial();
+const terrain = new ChunkedTerrain(world, terrainMaterial, waterMaterial);
 scene.add(terrain.group);
+scene.add(terrain.waterGroup);
 
 // Block-selection highlight (wireframe cube).
 const highlight = new LineSegments(
