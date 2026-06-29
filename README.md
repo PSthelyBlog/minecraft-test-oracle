@@ -10,7 +10,7 @@ bounded blocky world, break and place blocks, fly. Built in TypeScript + Three.j
 
 The point of this repo isn't only the game — it's that the game's **silent-failure-prone
 core** (voxel index math, ray picking, face-culled meshing, terrain generation, AABB
-physics, player movement) is covered by **independent, per-case, falsifiable oracles**,
+physics, player movement, light propagation) is covered by **independent, per-case, falsifiable oracles**,
 scaffolded with the [`test-oracle`](https://github.com/PSthelyBlog/test-oracle) plugin and
 proven to actually catch bugs via **mutation testing**.
 
@@ -18,7 +18,7 @@ proven to actually catch bugs via **mutation testing**.
 npm install
 npm run hooks:install  # once — installs the pre-push mutation gate (see below)
 npm run dev        # play at http://localhost:5173
-npm test           # 109 oracle tests (Vitest + fast-check)
+npm test           # 115 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
@@ -53,11 +53,12 @@ world.
 ```
 src/core/      pure, dependency-free, oracle-tested logic
   math.ts        3D vectors + camera direction (yaw/pitch → unit vector)
-  blocks.ts      block registry: id → {solid, opaque, colour}
+  blocks.ts      block registry: id → {solid, opaque, emission, colour}
   world.ts       fixed-size voxel store; coord↔index is the single source of truth
   raycast.ts     DDA voxel traversal for block picking (break/place)
   mesher.ts      face-culled mesh builder (per-chunk, seam-correct) + greedy merging + UVs
   atlas.ts       tile selection: (block, face) → tile index (= texture-array layer)
+  light.ts       block-light propagation (BFS flood-fill from emissive blocks)
   terrain.ts     deterministic seeded terrain generation
   physics.ts     AABB vs voxel-grid collision, resolved per axis
   selfcheck.ts   boot self-check: re-derives cheap invariants and THROWS at startup
@@ -109,7 +110,7 @@ among others:
 - **coverage gaps** — the Z-collision branch and player-movement direction were never
   exercised.
 
-Current score: **~96%**. The remaining survivors are documented **equivalent mutants**
+Current score: **~95%**. The remaining survivors are documented **equivalent mutants**
 (loop bounds that read out-of-bounds → Air with no effect, empty error-message strings,
 `1/0 === Infinity` branches, unreachable degenerate-input guards) — the methodology says to
 analyse and leave those, not to chase a vanity 100%. Where a survivor encoded an actual
@@ -123,7 +124,7 @@ mutants with the Vitest runner).
 ## Plugin commands used
 
 - `/oracle-init` — scaffolded Vitest + fast-check + StrykerJS.
-- `/oracle-doctor` — verified wiring and the paired-oracle convention (14/15 modules; the
+- `/oracle-doctor` — verified wiring and the paired-oracle convention (15/16 modules; the
   exception is the browser entry shell `main.ts`, covered by the smoke test).
 - `npm run mutation` (`/oracle-audit`) — the falsifiability proof above.
 
