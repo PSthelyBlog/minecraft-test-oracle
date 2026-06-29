@@ -11,6 +11,7 @@
 import { Group, Mesh, type Material } from "three";
 import type { World } from "../core/world";
 import { buildGreedyChunkMesh, chunkDims, chunksAffectedByEdit, CHUNK_SIZE } from "../core/mesher";
+import { computeLight } from "../core/light";
 import { geometryFromMesh } from "./chunkGeometry";
 
 export class ChunkedTerrain {
@@ -19,6 +20,7 @@ export class ChunkedTerrain {
 
   private readonly dims: { nx: number; ny: number; nz: number };
   private readonly meshes: (Mesh | null)[]; // one slot per chunk; null = empty (no faces)
+  private light: Uint8Array; // combined block+sky light, passed to every chunk mesh
 
   constructor(
     private readonly world: World,
@@ -27,6 +29,7 @@ export class ChunkedTerrain {
   ) {
     this.dims = chunkDims(world, chunkSize);
     this.meshes = new Array(this.dims.nx * this.dims.ny * this.dims.nz).fill(null);
+    this.light = computeLight(world);
     for (let cy = 0; cy < this.dims.ny; cy++)
       for (let cz = 0; cz < this.dims.nz; cz++)
         for (let cx = 0; cx < this.dims.nx; cx++) this.buildChunk(cx, cy, cz);
@@ -45,15 +48,24 @@ export class ChunkedTerrain {
       old.geometry.dispose();
       this.meshes[i] = null;
     }
-    const mesh = buildGreedyChunkMesh(this.world, cx, cy, cz, this.chunkSize);
+    const mesh = buildGreedyChunkMesh(this.world, cx, cy, cz, this.chunkSize, this.light);
     if (mesh.faceCount === 0) return; // empty chunk → no draw call
     const m = new Mesh(geometryFromMesh(mesh), this.material);
     this.meshes[i] = m;
     this.group.add(m);
   }
 
-  /** Rebuild exactly the chunks a block edit at (x, y, z) can have changed. */
+  /**
+   * Rebuild exactly the chunks a block edit at (x, y, z) can have changed.
+   *
+   * The full light field is recomputed first (cheap enough whole until #66 makes it
+   * incremental), then the directly-affected chunks are remeshed with it. NOTE: light
+   * can change cells farther than one chunk away (e.g. removing a roof relights a wide
+   * area); those distant chunks keep their stale lighting until they rebuild for
+   * another reason — the limitation #66 removes by remeshing exactly the changed set.
+   */
   rebuildAround(x: number, y: number, z: number): void {
+    this.light = computeLight(this.world);
     for (const [cx, cy, cz] of chunksAffectedByEdit(this.world, x, y, z, this.chunkSize)) {
       this.buildChunk(cx, cy, cz);
     }

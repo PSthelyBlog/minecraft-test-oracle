@@ -2,7 +2,7 @@ import { describe, test, expect } from "vitest";
 import fc from "fast-check";
 import { World } from "./world";
 import { Block, isOpaque, emissionOf } from "./blocks";
-import { computeBlockLight, computeSkyLight, MAX_LIGHT } from "./light";
+import { computeBlockLight, computeSkyLight, computeLight, MAX_LIGHT } from "./light";
 import { generateTerrain } from "./terrain";
 
 /**
@@ -337,5 +337,29 @@ describe("skylight oracle", () => {
     expect(fnv(light)).toBe("2519156e");
     expect(Array.from(light)).toEqual(Array.from(relaxSky(w)));
     expect(Array.from(computeSkyLight(w))).toEqual(Array.from(light)); // determinism
+  });
+});
+
+describe("combined-light oracle", () => {
+  // CENSUS: computeLight is the cell-wise MAX of block-light and skylight — a cell is
+  // as lit as the brighter of the two reaches it. Re-derived independently (the test
+  // takes its own max), over random worlds, so `max → min`/`+`/either-source-dropped
+  // all disagree. Bounds and the ≥-each-component invariant are checked too.
+  test("census: combined light is the cell-wise max of block-light and skylight", () => {
+    fc.assert(
+      fc.property(randomCells, (cells) => {
+        const w = fill(cells);
+        const block = computeBlockLight(w);
+        const sky = computeSkyLight(w);
+        const combined = computeLight(w);
+        for (let i = 0; i < w.volume; i++) {
+          expect(combined[i]).toBe(Math.max(block[i], sky[i]));
+          expect(combined[i]).toBeGreaterThanOrEqual(block[i]);
+          expect(combined[i]).toBeGreaterThanOrEqual(sky[i]);
+          expect(combined[i]).toBeLessThanOrEqual(MAX_LIGHT);
+        }
+      }),
+      { numRuns: 200 },
+    );
   });
 });

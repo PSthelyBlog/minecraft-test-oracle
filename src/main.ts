@@ -101,8 +101,9 @@ scene.add(sun);
 // Chunked terrain: the world is split into fixed cubes, each its own mesh, so a
 // block edit rebuilds only the chunk(s) it touches instead of the whole world.
 // Blocks are textured from a procedural tile ARRAY (one layer per tile), sampled by
-// the mesher's per-vertex `layer`; the per-vertex colour carries only the per-face
-// ambient shade, so the final look is texel × shade × lighting.
+// the mesher's per-vertex `layer`; the per-vertex colour bakes the face's directional
+// shade × ambient occlusion × propagated light (block + sky), so the final look is
+// texel × that baked vertex colour (× the scene's hemisphere/sun lights).
 const terrainMaterial = buildTerrainMaterial();
 const terrain = new ChunkedTerrain(world, terrainMaterial);
 scene.add(terrain.group);

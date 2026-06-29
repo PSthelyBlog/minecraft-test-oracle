@@ -150,7 +150,7 @@ a zero normal.
 interface ChunkMesh {
   positions: Float32Array;   // xyz per vertex
   normals: Float32Array;     // xyz per vertex
-  colors: Float32Array;      // rgb per vertex — per-face shade × per-vertex AO (greyscale)
+  colors: Float32Array;      // rgb per vertex — per-face shade × per-vertex AO × per-face light (greyscale)
   uvs: Float32Array;         // st per vertex — TILE-LOCAL [0,1] (a unit quad covers one tile)
   layers: Float32Array;      // tile index per vertex — selects the tile (= texture-array layer)
   indices: Uint32Array;      // 6 per quad (two triangles)
@@ -159,23 +159,26 @@ interface ChunkMesh {
 
 isFaceVisible(world: World, x, y, z, faceIndex: number): boolean   // faceIndex 0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z
 vertexAO(side1: number, side2: number, corner: number): number     // ambient-occlusion level 0..3 (0=darkest); both sides ⇒ 0
-buildMesh(world: World): ChunkMesh                                 // mesh the whole world
+vertexAO / lightFactor(level): number                              // brightness ramps: AO 0..3, light 0..15
+buildMesh(world: World, light?): ChunkMesh                         // mesh the whole world
 
 // Chunked meshing (rebuild only what an edit touches)
 const CHUNK_SIZE = 16
 chunkDims(world: World, chunkSize?): { nx, ny, nz }                       // chunk count per axis (ceil)
-buildChunkMesh(world: World, cx, cy, cz, chunkSize?): ChunkMesh           // mesh one chunk, culling across borders
+buildChunkMesh(world: World, cx, cy, cz, chunkSize?, light?): ChunkMesh   // mesh one chunk, culling across borders
 chunksAffectedByEdit(world: World, x, y, z, chunkSize?): [cx,cy,cz][]     // chunks to rebuild for an edit at (x,y,z)
 
 // Greedy meshing (merge coplanar, same-tile, uniformly-lit faces into bigger quads)
-buildGreedyMesh(world: World): ChunkMesh                                  // merged counterpart of buildMesh
-buildGreedyChunkMesh(world: World, cx, cy, cz, chunkSize?): ChunkMesh     // merged counterpart of buildChunkMesh (the renderer uses this)
+buildGreedyMesh(world: World, light?): ChunkMesh                          // merged counterpart of buildMesh
+buildGreedyChunkMesh(world: World, cx, cy, cz, chunkSize?, light?): ChunkMesh   // merged counterpart of buildChunkMesh (the renderer uses this)
 ```
 
 A face is emitted iff the neighbour **across it** is not opaque (air, glass, leaves, water,
 or out-of-bounds reveal it). Buffer layout per quad: 4 vertices, 6 indices. Each face is
-shaded by a fixed ambient factor (top `1.0` … bottom `0.5`) multiplied into its vertex
-colours.
+shaded by a fixed ambient factor (top `1.0` … bottom `0.5`) × ambient occlusion × the light
+level (`lightFactor`, `LIGHT_MIN`…`1`) sampled from the optional `light` field at the open cell
+the face looks into. When `light` is omitted the factor is `1`, so the mesh is byte-identical to
+the unlit one — light is a strict extension. All multiplied into the vertex colours.
 
 `buildChunkMesh` iterates only one chunk's cells (clamped to the world edge for the last,
 partial chunk) but culls against the full world, so the chunks tile the world and reassemble
@@ -183,7 +186,8 @@ into the exact whole-world mesh — no seams. Vertices are emitted in **world** 
 each chunk's geometry sits at the origin.
 
 `buildGreedyMesh` / `buildGreedyChunkMesh` merge coplanar, adjacent faces that share a tile
-(layer) **and** are uniformly lit (all four AO corners equal) into maximal rectangles, so a
+(layer) **and** are uniformly lit (all four AO corners equal **and** the same face light level)
+into maximal rectangles, so a
 flat region becomes a few big quads (≈55% fewer quads on the default terrain). Faces whose AO
 varies are emitted 1×1 with their exact per-corner AO, so no shading detail is lost. The
 merged quad's tile-local UVs run `0..w`/`0..h` so the tile **repeats** once per cell (the
@@ -232,6 +236,7 @@ the tile is _selected_, not positioned in a grid).
 const MAX_LIGHT = 15
 computeBlockLight(world: World): Uint8Array   // per-voxel block-light 0..15, in world.index order
 computeSkyLight(world: World): Uint8Array     // per-voxel skylight  0..15, in world.index order
+computeLight(world: World): Uint8Array        // per-voxel max(block, sky) — the field the mesher uses
 ```
 
 **Block-light.** Every emitter (`emissionOf > 0`) is seeded with its emission, then a
@@ -244,6 +249,10 @@ the top down, every cell with nothing opaque above it holds `MAX_LIGHT` until th
 block. Because the whole open column is seeded at full brightness, a vertical drop through open
 air never attenuates (the Classic rule); only spread into shadow costs a level. A roof darkens
 everything beneath it.
+
+**Combined.** `computeLight` is the cell-wise `max(blockLight, skyLight)` — a cell is as lit as
+the brighter of the sky or a nearby emitter reaches it. This is the field the mesher dims faces
+by (recomputed whole on each edit until incremental updates land in #66).
 
 > Invariants (both): levels stay in `[0, 15]`; opaque cells are `0`; a lit cell that isn't its
 > own source has a neighbour brighter by ≥ 1 (light never appears from nowhere); an opaque

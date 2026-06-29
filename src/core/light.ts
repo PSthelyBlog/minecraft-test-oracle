@@ -107,6 +107,20 @@ export function computeBlockLight(world: World): Uint8Array {
 }
 
 /**
+ * Per-voxel combined light (`0..15`): the brighter of block-light and skylight at
+ * each cell, `max(computeBlockLight, computeSkyLight)`. This is the field the mesher
+ * dims faces by — a cell counts as lit if EITHER the sky or a nearby emitter reaches
+ * it. (Recomputed whole on each edit until incremental updates land in #66.)
+ */
+export function computeLight(world: World): Uint8Array {
+  const block = computeBlockLight(world);
+  const sky = computeSkyLight(world);
+  const out = new Uint8Array(world.volume);
+  for (let i = 0; i < out.length; i++) out[i] = block[i] > sky[i] ? block[i] : sky[i];
+  return out;
+}
+
+/**
  * Per-voxel skylight level (`0..15`), as a flat array in the world's index order
  * (`world.index`). Seed: walking each column from the top down, every cell is open
  * to the sky and holds MAX_LIGHT until the first opaque block, which stops the
