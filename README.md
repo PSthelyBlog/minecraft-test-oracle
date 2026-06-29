@@ -26,8 +26,9 @@ npm run smoke      # headless-Chromium boot/render check (needs a dev/preview se
 The **falsifiability gate runs locally**: `npm run hooks:install` sets up a git `pre-push`
 hook that runs `npm run mutation:clean` before any push touching code/tests, aborting it if a
 mutant survives (it is too slow — minutes — to gate every PR in CI). CI runs typecheck/test/
-build, lint, and the headless render check; the mutation score is published to the badge from
-a push-to-`main` job. See [docs/TESTING.md](docs/TESTING.md).
+build, lint, and the headless render check; the mutation score is published to the badge by a
+separate workflow that runs on a published **release** or manual dispatch (not on every merge).
+See [docs/TESTING.md](docs/TESTING.md).
 
 **Controls:** click to lock the mouse · `WASD` move · mouse look · `Space` jump ·
 `Shift` sneak/descend · left-click break · right-click place · `1–9`/scroll select ·

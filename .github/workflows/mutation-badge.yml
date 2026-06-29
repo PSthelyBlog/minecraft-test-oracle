@@ -1,0 +1,40 @@
+name: mutation badge
+
+# Refreshes the live Stryker-dashboard mutation badge. Deliberately decoupled from
+# merges: the mutation run is slow (10–23 min on shared runners) and the falsifiability
+# gate already runs LOCALLY via the pre-push hook (scripts/hooks/pre-push). So this runs
+# only when a release is published, or on demand from the Actions tab — never on a plain
+# push to main, so merging a PR is cheap.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  badge:
+    name: mutation badge (release · manual)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Publish the score to the Stryker dashboard, which updates the README badge.
+      # `dashboard.version` is pinned to `main` in stryker.config.json, so the report
+      # lands on the …/main badge regardless of the ref that triggered this run (a
+      # release tag would otherwise publish under the tag's version). The reporter
+      # honours the break threshold (70) as a backstop but gates nothing here.
+      # STRYKER_DASHBOARD_API_KEY is a repo secret.
+      - name: StrykerJS + dashboard
+        env:
+          STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
+        run: npm run mutation -- --reporters progress,clear-text,json,html,dashboard
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          if-no-files-found: ignore
