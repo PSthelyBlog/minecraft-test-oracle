@@ -72,8 +72,11 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   shadow). Block-light seeds from emissive blocks (`emission > 0`); skylight seeds every cell open
   to the sky at full brightness, so a vertical drop through open air never attenuates. Both are a
   max-fixpoint, so order-independent; each checked against an independent relaxation.
-  `computeLight` combines them (cell-wise `max`) into the field the mesher dims faces by;
-  `ChunkedTerrain` recomputes it on each edit (made incremental in #66).
+  `computeLight` combines them (cell-wise `max`) into the field the mesher dims faces by.
+  `updateBlockLight` / `updateSkyLight` / `updateLight` apply a single edit **incrementally**
+  (two-pass remove/add; skylight re-seeds the open column below the edit) and return the exact
+  changed-cell set; `ChunkedTerrain` uses it to remesh only the affected chunks. Pinned by a
+  differential oracle (incremental == from-scratch after every edit of a random sequence).
 - **`selfcheck.ts`** — `selfCheck()` re-derives the cheapest invariants at boot and throws
   if any is broken.
 

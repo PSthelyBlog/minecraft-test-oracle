@@ -11,7 +11,7 @@
 import { Group, Mesh, type Material } from "three";
 import type { World } from "../core/world";
 import { buildGreedyChunkMesh, chunkDims, chunksAffectedByEdit, CHUNK_SIZE } from "../core/mesher";
-import { computeLight } from "../core/light";
+import { computeBlockLight, computeSkyLight, updateLight } from "../core/light";
 import { geometryFromMesh } from "./chunkGeometry";
 
 export class ChunkedTerrain {
@@ -20,7 +20,12 @@ export class ChunkedTerrain {
 
   private readonly dims: { nx: number; ny: number; nz: number };
   private readonly meshes: (Mesh | null)[]; // one slot per chunk; null = empty (no faces)
-  private light: Uint8Array; // combined block+sky light, passed to every chunk mesh
+  // Block, sky, and the combined max field, maintained incrementally across edits.
+  // The mesher dims faces by `light`; the two component fields are what `updateLight`
+  // needs to keep the combination correct without a full recompute.
+  private readonly blockLight: Uint8Array;
+  private readonly skyLight: Uint8Array;
+  private readonly light: Uint8Array;
 
   constructor(
     private readonly world: World,
@@ -29,7 +34,11 @@ export class ChunkedTerrain {
   ) {
     this.dims = chunkDims(world, chunkSize);
     this.meshes = new Array(this.dims.nx * this.dims.ny * this.dims.nz).fill(null);
-    this.light = computeLight(world);
+    this.blockLight = computeBlockLight(world);
+    this.skyLight = computeSkyLight(world);
+    this.light = new Uint8Array(world.volume);
+    for (let i = 0; i < this.light.length; i++)
+      this.light[i] = Math.max(this.blockLight[i], this.skyLight[i]);
     for (let cy = 0; cy < this.dims.ny; cy++)
       for (let cz = 0; cz < this.dims.nz; cz++)
         for (let cx = 0; cx < this.dims.nx; cx++) this.buildChunk(cx, cy, cz);
@@ -56,18 +65,43 @@ export class ChunkedTerrain {
   }
 
   /**
-   * Rebuild exactly the chunks a block edit at (x, y, z) can have changed.
+   * Rebuild the chunks a block edit at (x, y, z) can have changed.
    *
-   * The full light field is recomputed first (cheap enough whole until #66 makes it
-   * incremental), then the directly-affected chunks are remeshed with it. NOTE: light
-   * can change cells farther than one chunk away (e.g. removing a roof relights a wide
-   * area); those distant chunks keep their stale lighting until they rebuild for
-   * another reason — the limitation #66 removes by remeshing exactly the changed set.
+   * The light fields are updated incrementally (`updateLight`, two-pass add/remove),
+   * which returns exactly the cells whose combined light changed. A chunk must remesh
+   * if its geometry changed (the edit) OR a face it draws is now lit differently — a
+   * face's light comes from the open cell across it, so a light change at cell `c`
+   * affects faces in `c`'s own chunk and its axis-neighbour chunks. That is precisely
+   * `chunksAffectedByEdit(c)`, so we union it over the edit and every changed cell.
    */
   rebuildAround(x: number, y: number, z: number): void {
-    this.light = computeLight(this.world);
-    for (const [cx, cy, cz] of chunksAffectedByEdit(this.world, x, y, z, this.chunkSize)) {
-      this.buildChunk(cx, cy, cz);
+    const changed = updateLight(this.world, this.blockLight, this.skyLight, this.light, x, y, z);
+
+    const { sizeX, sizeZ } = this.world;
+    const seen = new Set<number>();
+    const toBuild: [number, number, number][] = [];
+    const consider = (cellX: number, cellY: number, cellZ: number): void => {
+      for (const [cx, cy, cz] of chunksAffectedByEdit(
+        this.world,
+        cellX,
+        cellY,
+        cellZ,
+        this.chunkSize,
+      )) {
+        const key = this.slot(cx, cy, cz);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        toBuild.push([cx, cy, cz]);
+      }
+    };
+
+    consider(x, y, z); // the geometry edit itself
+    for (const i of changed) {
+      const cx = i % sizeX;
+      const cz = Math.floor(i / sizeX) % sizeZ;
+      const cy = Math.floor(i / (sizeX * sizeZ));
+      consider(cx, cy, cz);
     }
+    for (const [cx, cy, cz] of toBuild) this.buildChunk(cx, cy, cz);
   }
 }
