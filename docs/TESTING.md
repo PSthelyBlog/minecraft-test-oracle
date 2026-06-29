@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 121 oracle tests once (Vitest)
+npm test            # run all 129 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -118,20 +118,20 @@ not a number to accept. Explore other samples locally with `FAST_CHECK_SEED=<n> 
 Run `npm run mutation:clean` for the authoritative live numbers (see the footgun above for
 why `mutation:clean` and not `mutation`). As of this base implementation:
 
-| Module           | Mutation score | Notes                                                                                    |
-| ---------------- | -------------: | ---------------------------------------------------------------------------------------- |
-| `blocks.ts`      |           100% | static data; falsifiability proven by injection (see below)                              |
-| `math.ts`        |           100% |                                                                                          |
-| `movement.ts`    |           100% |                                                                                          |
-| `atlas.ts`       |           100% | per-face tile (layer) selection; `TILE_COLOR` static (injection-proven)                  |
-| `physics.ts`     |           ~98% |                                                                                          |
-| `world.ts`       |           ~97% |                                                                                          |
-| `mesher.ts`      |           ~96% | incl. chunked + greedy meshing, tile-local UV/layer, AO; 15 equivalent survivors         |
-| `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate        |
-| `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)                    |
-| `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)                |
-| `light.ts`       |           ~84% | block-light + skylight BFS flood; all 11 survivors equivalent (flood-fill classes below) |
-| **overall**      |     **~94.9%** | 121 tests across 16 files                                                                |
+| Module           | Mutation score | Notes                                                                                     |
+| ---------------- | -------------: | ----------------------------------------------------------------------------------------- |
+| `blocks.ts`      |           100% | static data; falsifiability proven by injection (see below)                               |
+| `math.ts`        |           100% |                                                                                           |
+| `movement.ts`    |           100% |                                                                                           |
+| `atlas.ts`       |           100% | per-face tile (layer) selection; `TILE_COLOR` static (injection-proven)                   |
+| `physics.ts`     |           ~98% |                                                                                           |
+| `world.ts`       |           ~97% |                                                                                           |
+| `mesher.ts`      |           ~96% | incl. chunked + greedy meshing, tile-local UV/layer, AO, light; 16 equivalent survivors   |
+| `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate         |
+| `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)                     |
+| `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)                 |
+| `light.ts`       |           ~83% | block-light + skylight + combined; all 13 survivors equivalent (flood-fill classes below) |
+| **overall**      |     **~94.8%** | 129 tests across 16 files                                                                 |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -209,13 +209,13 @@ document these, not to chase a vanity number. The ones left here:
   so `v ∈ {2,2,1}`), hence `sv[0]` is structurally always `0` and `±sv[0]` is indistinguishable.
   The **Y and Z** components of the same expression are _not_ equivalent (both axes appear as a
   `v`) and the AO census kills them; only this one X mutant survives.
-- **Greedy-mesher survivors (10, all equivalent).** The greedy mesher
+- **Greedy-mesher survivors (11, all equivalent).** The greedy mesher
   (`buildGreedyMesh` / `buildGreedyChunkMesh`) is pinned by an **area-conservation census**
   (its quads decompose to exactly the visible unit faces — no overlap, gap, or stray), a
   **solid-cube golden** (6 quads, so a no-op "greedy" can't pass), a **tile/UV census** with a
-  per-cell unit-tile check, and an **AO census** that re-derives each covered cell's shading
-  and the brighter-diagonal split. What survives is genuinely equivalent, in classes already
-  seen above:
+  per-cell unit-tile check, an **AO census** that re-derives each covered cell's shading and the
+  brighter-diagonal split, and a **light census** (below) that re-derives each cell's shade × AO
+  × light. What survives is genuinely equivalent, in classes already seen above:
   - _the `sAxis` ternary branches_ (`mesher.ts`, `ConditionalExpression → true`/`false` in the
     `f.corners[1][k] !== f.corners[0][k]` chain): `sAxis` only matters through `sAxis === u`,
     which decides whether a merged quad's UV `s` scales by `w` or `h`. Across the six faces
@@ -227,13 +227,14 @@ document these, not to chase a vanity number. The ones left here:
     a permutation of `{0,1,2}`; the four AO corners are all filled), so the initializer's value
     is never observed — the same class as the terrain/`world` initializer survivors.
   - _mask preallocation_ (`new Array(U*V)` → `new Array()` for `key`/`keyLevel`/`keyLayer`/
-    `used`): JS arrays grow on index assignment and an unset slot reads `undefined` (falsy, like
-    the `false`/`null` fill), so dropping the size hint changes nothing — only the entries the
-    greedy walk actually sets are ever read.
+    `keyLight`/`used`): JS arrays grow on index assignment and an unset slot reads `undefined`
+    (falsy, like the `false`/`null` fill), so dropping the size hint changes nothing — only the
+    entries the greedy walk actually sets are ever read. (`keyLight`, the per-face light level in
+    the merge key added for light-aware meshing, is in this same class.)
   - _the rectangle-height loop bound_ (`sv + h < V` → `<=` / `sv - h`): redundant with the inner
     row scan, which breaks as soon as a cell's key differs — and an out-of-slice read is
     `undefined ≠ key`, so it stops at the same `h` (the mesher/persistence loop-bound class).
-- **`light.ts` survivors (11, all equivalent).** Block-light and skylight are the same BFS
+- **`light.ts` survivors (13, all equivalent).** Block-light and skylight are the same BFS
   flood (a shared `floodLight`) whose result is a max-fixpoint, so several mutation points are
   provably output-preserving — the same classes seen above, here intrinsic to flood-fill. The
   subtler ones were confirmed equivalent empirically (identical field over hundreds–thousands of
@@ -257,6 +258,12 @@ document these, not to chase a vanity number. The ones left here:
     against `light[OOB] = undefined` (`x < undefined−1` is always false), so nothing propagates —
     the real columns are seeded identically. Confirmed equivalent over 2000 random worlds (the
     loop/queue-bound class).
+  - _the combined-light merge_ (`computeLight`, 2 survivors): the loop bound
+    (`i < out.length` → `<=`) writes one cell past the `Uint8Array` (ignored) and reads
+    `block[OOB]/sky[OOB] = undefined` (the `undefined > undefined` ternary picks the ignored
+    write) — the loop-bound class; and the max select (`block[i] > sky[i]` → `>=`) differs only
+    on a tie, where both branches return the **same** value, so the max is unchanged. Both
+    confirmed equivalent over 100 000 random arrays.
 - **`persistence.ts` survivors (6, all equivalent).** Two classes, both already seen elsewhere:
   the **run-extension loop bound** in `encodeWorld` (`j < data.length` → `j <= data.length` / the
   whole condition → `true`) is redundant with the inner `data[j] === value` guard — an

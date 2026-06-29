@@ -11,9 +11,12 @@ import {
   buildGreedyChunkMesh,
   chunkDims,
   chunksAffectedByEdit,
+  lightFactor,
+  LIGHT_MIN,
   type ChunkMesh,
 } from "./mesher";
 import { tileIndexFor } from "./atlas";
+import { computeLight, MAX_LIGHT } from "./light";
 
 /**
  * INDEPENDENT oracle for the visible-face count.
@@ -1032,6 +1035,231 @@ describe("greedy meshing oracle", () => {
         }
       }),
       { numRuns: 60 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Light-aware shading. Each face is dimmed by the propagated light (max of block-
+// and sky-light) at the OPEN cell it looks into, folded into the per-vertex colour
+// as colour = faceShade × AO × light. The oracles below re-derive that fold
+// INDEPENDENTLY (their own light-brightness ramp, their own open-cell sampling) and
+// pin the strict-extension (full light ⇒ unchanged) and monotonicity properties.
+// ---------------------------------------------------------------------------
+
+// Independent light-brightness ramp: LIGHT_MIN at level 0, 1.0 at MAX_LIGHT.
+const lightBrightness = (level: number): number =>
+  LIGHT_MIN + ((1 - LIGHT_MIN) * level) / MAX_LIGHT;
+
+// Sample a light field with the mesher's edge convention: out of bounds (the world
+// border, which the face looks out through) reads as full light.
+const sampleLight = (L: Uint8Array, w: World, x: number, y: number, z: number): number =>
+  w.inBounds(x, y, z) ? L[w.index(x, y, z)] : MAX_LIGHT;
+
+describe("mesher light-aware shading oracle", () => {
+  // TRUTH TABLE: lightFactor against hand-computed values (0.12 floor, 1.0 at full
+  // light), endpoints + strict monotonicity — a mutated formula is loud.
+  test("lightFactor matches hand-computed values and is strictly monotone", () => {
+    expect(lightFactor(0)).toBeCloseTo(0.12, 6);
+    expect(lightFactor(MAX_LIGHT)).toBeCloseTo(1.0, 6);
+    expect(lightFactor(5)).toBeCloseTo(0.12 + (0.88 * 5) / 15, 6);
+    for (let L = 1; L <= MAX_LIGHT; L++) expect(lightFactor(L)).toBeGreaterThan(lightFactor(L - 1));
+  });
+
+  // STRICT EXTENSION: a fully-lit field (all 15) reproduces the unlit mesh byte-for-
+  // byte — so light is a strict extension of shade × AO (factor 1 at full light) and
+  // the omitted-light default equals explicit full light. Holds for naive AND greedy
+  // (full light can't block a merge that AO already allows).
+  test("golden: full light reproduces the unlit mesh exactly", () => {
+    const w = new World(4, 4, 4);
+    const palette = [Block.Air, Block.Stone, Block.Grass, Block.Glass];
+    for (let i = 0; i < w.volume; i++) w.data[i] = palette[i % palette.length];
+    const full = new Uint8Array(w.volume).fill(MAX_LIGHT);
+    expect(Array.from(buildMesh(w, full).colors)).toEqual(Array.from(buildMesh(w).colors));
+    expect(Array.from(buildGreedyMesh(w, full).colors)).toEqual(
+      Array.from(buildGreedyMesh(w).colors),
+    );
+  });
+
+  // CENSUS (headline): for every face in random worlds, re-derive each vertex colour
+  // as faceShade × AO × light, sampling the light field at the OPEN cell with the
+  // test's own geometry. Shares no code with the mesher's light/AO path.
+  test("census: every vertex colour folds in the open-cell light (naive mesher)", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Grass, Block.Glass, Block.Glowstone);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
+        const w = new World(4, 4, 4);
+        cells.forEach((b, i) => (w.data[i] = b));
+        const L = computeLight(w);
+        const m = buildMesh(w, L);
+        for (let f = 0; f < m.faceCount; f++) {
+          const no = f * 4 * 3;
+          const nx = m.normals[no],
+            ny = m.normals[no + 1],
+            nz = m.normals[no + 2];
+          const fi = faceIndexFromNormal(nx, ny, nz);
+          const faceAxis = nx !== 0 ? 0 : ny !== 0 ? 1 : 2;
+          const [u, v] = faceAxis === 0 ? [1, 2] : faceAxis === 1 ? [0, 2] : [0, 1];
+          const p0 = f * 4 * 3;
+          const cell = [
+            Math.floor((m.positions[p0] + m.positions[p0 + 6]) / 2 - nx * 0.5),
+            Math.floor((m.positions[p0 + 1] + m.positions[p0 + 7]) / 2 - ny * 0.5),
+            Math.floor((m.positions[p0 + 2] + m.positions[p0 + 8]) / 2 - nz * 0.5),
+          ];
+          const base = [cell[0] + nx, cell[1] + ny, cell[2] + nz]; // open neighbour cell
+          const lf = lightBrightness(sampleLight(L, w, base[0], base[1], base[2]));
+          const occ = (o: number[]) =>
+            isOpaque(w.get(base[0] + o[0], base[1] + o[1], base[2] + o[2])) ? 1 : 0;
+          for (let k = 0; k < 4; k++) {
+            const p = (f * 4 + k) * 3;
+            const corner = [
+              m.positions[p] - cell[0],
+              m.positions[p + 1] - cell[1],
+              m.positions[p + 2] - cell[2],
+            ];
+            const su = [0, 0, 0];
+            const sv = [0, 0, 0];
+            su[u] = corner[u] === 1 ? 1 : -1;
+            sv[v] = corner[v] === 1 ? 1 : -1;
+            const s1 = occ(su);
+            const s2 = occ(sv);
+            const cc = occ([su[0] + sv[0], su[1] + sv[1], su[2] + sv[2]]);
+            const level = s1 && s2 ? 0 : 3 - (s1 + s2 + cc);
+            const expected = FACE_SHADE[fi] * aoBrightness(level) * lf;
+            expect(m.colors[p]).toBeCloseTo(expected, 6);
+            expect(m.colors[p]).toBe(m.colors[p + 1]); // greyscale
+            expect(m.colors[p + 1]).toBe(m.colors[p + 2]);
+          }
+        }
+      }),
+      { numRuns: 80 },
+    );
+  });
+
+  // METAMORPHIC (monotonicity): the naive mesher's face set/order is independent of
+  // light, so colours correspond 1:1 across light fields. A brighter field never
+  // darkens any vertex and a darker field never brightens it: dark ≤ real ≤ bright.
+  test("metamorphic: more light never darkens, less light never brightens", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Grass, Block.Glass, Block.Glowstone);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
+        const w = new World(4, 4, 4);
+        cells.forEach((b, i) => (w.data[i] = b));
+        const dark = new Uint8Array(w.volume); // all 0
+        const real = computeLight(w);
+        const bright = new Uint8Array(w.volume).fill(MAX_LIGHT);
+        const md = buildMesh(w, dark).colors;
+        const mr = buildMesh(w, real).colors;
+        const mb = buildMesh(w, bright).colors;
+        expect(md.length).toBe(mr.length);
+        expect(mr.length).toBe(mb.length);
+        for (let i = 0; i < mr.length; i++) {
+          expect(md[i]).toBeLessThanOrEqual(mr[i] + 1e-6);
+          expect(mr[i]).toBeLessThanOrEqual(mb[i] + 1e-6);
+        }
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  // METAMORPHIC (the headline "lighting is visible"): a Stone floor sealed under a
+  // Stone roof has a fully-dark gap (no skylight, no emitter). Placing a Glowstone in
+  // that gap strictly brightens the top face of a nearby floor cell — light reaches it.
+  test("metamorphic: a Glowstone brightens a nearby shadowed floor face", () => {
+    const w = new World(9, 4, 5);
+    for (let z = 0; z < 5; z++)
+      for (let x = 0; x < 9; x++) {
+        w.set(x, 0, z, Block.Stone); // floor
+        w.set(x, 3, z, Block.Stone); // sealed roof → the y=1..2 gap gets no skylight
+      }
+    // the +Y face of floor cell (3,0,2): its open cell (3,1,2) is dark (light 0)
+    const topFaceShade = (m: ChunkMesh): number => {
+      for (let f = 0; f < m.faceCount; f++) {
+        const p0 = f * 12;
+        if (m.normals[p0 + 1] !== 1) continue; // +Y
+        const cx = Math.floor((m.positions[p0] + m.positions[p0 + 6]) / 2);
+        const cy = Math.floor((m.positions[p0 + 1] + m.positions[p0 + 7]) / 2 - 0.5);
+        const cz = Math.floor((m.positions[p0 + 2] + m.positions[p0 + 8]) / 2);
+        if (cx === 3 && cy === 0 && cz === 2) return m.colors[f * 12];
+      }
+      return -1;
+    };
+    const before = topFaceShade(buildMesh(w, computeLight(w)));
+    expect(before).toBeGreaterThan(0);
+    w.set(6, 1, 2, Block.Glowstone); // in the gap, 3 cells away, doesn't cull the face
+    const after = topFaceShade(buildMesh(w, computeLight(w)));
+    expect(after).toBeGreaterThan(before); // the face is now lit
+  });
+
+  // CENSUS: light-aware greedy meshing still covers exactly the visible unit faces —
+  // adding a light dimension to the merge key drops/doubles/invents nothing.
+  test("census: light-aware greedy quads cover exactly the visible unit faces", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves, Block.Glowstone);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
+        const w = new World(4, 4, 4);
+        cells.forEach((b, i) => (w.data[i] = b));
+        expect(unitFacesOf(buildGreedyMesh(w, computeLight(w))).sort()).toEqual(
+          expectedUnitFaces(w).sort(),
+        );
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  // CENSUS: every light-aware greedy quad reproduces shade × AO × light for each cell
+  // it covers — so a merged quad can only span cells uniformly lit at the SAME light
+  // level (never merged across a light seam), while a 1×1 keeps its exact corners.
+  test("census: every light-aware greedy quad reproduces each covered cell's shade × AO × light", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Grass, Block.Glass, Block.Glowstone);
+    fc.assert(
+      fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
+        const w = new World(4, 4, 4);
+        cells.forEach((b, i) => (w.data[i] = b));
+        const L = computeLight(w);
+        const m = buildGreedyMesh(w, L);
+        for (let f = 0; f < m.faceCount; f++) {
+          const n = quadNormal(m, f);
+          const d = faceIndexFromNormal(n[0], n[1], n[2]);
+          const { a, u, v } = faceAxes(d);
+          const cs = [0, 1, 2, 3].map((k) => quadCorner(m, f, k));
+          const umin = Math.min(...cs.map((c) => c[u]));
+          const vmin = Math.min(...cs.map((c) => c[v]));
+          const wq = Math.max(...cs.map((c) => c[u])) - umin;
+          const hq = Math.max(...cs.map((c) => c[v])) - vmin;
+          const planeA = cs[0][a];
+          const quadShades = [0, 1, 2, 3]
+            .map((k) => m.colors[(f * 4 + k) * 3])
+            .sort((p, q) => p - q);
+          for (let i = 0; i < wq; i++)
+            for (let j = 0; j < hq; j++) {
+              const cell = [0, 0, 0];
+              cell[a] = planeA - (n[a] > 0 ? 1 : 0);
+              cell[u] = umin + i;
+              cell[v] = vmin + j;
+              const base = [cell[0] + n[0], cell[1] + n[1], cell[2] + n[2]];
+              const lf = lightBrightness(sampleLight(L, w, base[0], base[1], base[2]));
+              const occ = (ou: number, ov: number): number => {
+                const o = [0, 0, 0];
+                o[u] = ou;
+                o[v] = ov;
+                return isOpaque(w.get(base[0] + o[0], base[1] + o[1], base[2] + o[2])) ? 1 : 0;
+              };
+              const cellShades: number[] = [];
+              for (const su of [1, -1])
+                for (const sv of [1, -1]) {
+                  const s1 = occ(su, 0),
+                    s2 = occ(0, sv),
+                    cc = occ(su, sv);
+                  const level = s1 && s2 ? 0 : 3 - (s1 + s2 + cc);
+                  cellShades.push(FACE_SHADE[d] * aoBrightness(level) * lf);
+                }
+              cellShades.sort((p, q) => p - q);
+              for (let q = 0; q < 4; q++) expect(quadShades[q]).toBeCloseTo(cellShades[q], 6);
+            }
+        }
+      }),
+      { numRuns: 120 },
     );
   });
 });

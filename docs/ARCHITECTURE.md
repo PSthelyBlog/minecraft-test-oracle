@@ -54,7 +54,10 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   fixed chunk (culling across borders) so edits remesh just the affected chunks.
   `buildGreedyMesh` / `buildGreedyChunkMesh` additionally **merge** coplanar same-tile,
   uniformly-lit faces into bigger quads (what the renderer draws); `buildMesh` is the
-  independent oracle reference the greedy area-conservation census checks against.
+  independent oracle reference the greedy area-conservation census checks against. The optional
+  `light` field dims each face by `faceShade × AO × lightFactor(light)` at the open cell it looks
+  into (omitted ⇒ factor 1, a strict extension); light joins the greedy merge key, so faces at
+  different light levels don't merge.
 - **`terrain.ts`** — deterministic seeded terrain (`generateTerrain`), value-noise
   heightmap, vertical layering, and hash-placed Log/Leaves trees on grass.
 - **`persistence.ts`** — save/load: run-length encodes a `World` to a compact binary blob
@@ -69,6 +72,8 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   shadow). Block-light seeds from emissive blocks (`emission > 0`); skylight seeds every cell open
   to the sky at full brightness, so a vertical drop through open air never attenuates. Both are a
   max-fixpoint, so order-independent; each checked against an independent relaxation.
+  `computeLight` combines them (cell-wise `max`) into the field the mesher dims faces by;
+  `ChunkedTerrain` recomputes it on each edit (made incremental in #66).
 - **`selfcheck.ts`** — `selfCheck()` re-derives the cheapest invariants at boot and throws
   if any is broken.
 
