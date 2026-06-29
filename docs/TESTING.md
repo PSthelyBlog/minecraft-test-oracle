@@ -138,15 +138,18 @@ badge job as a backstop).
 
 ### The README badge is generated, not hand-synced
 
-The README **Mutation score** badge is no longer a hand-edited static value. On every push
-to `main`, the `mutation badge` CI job runs Stryker with the **`dashboard` reporter** enabled
+The README **Mutation score** badge is no longer a hand-edited static value. A dedicated
+workflow (`.github/workflows/mutation-badge.yml`) runs Stryker with the **`dashboard` reporter**
 (`--reporters …,dashboard`, using the `STRYKER_DASHBOARD_API_KEY` repo secret) and uploads the
 full report to the
 [Stryker dashboard](https://dashboard.stryker-mutator.io/reports/github.com/PSthelyBlog/minecraft-test-oracle/main).
-The badge points at the dashboard's shields **endpoint** (`badge-api.stryker-mutator.io/…/main`),
-so it tracks the authoritative score automatically. This is the _only_ mutation run left in CI
-(push-to-`main` only) and it gates nothing — the falsifiability gate is the local pre-push hook.
-The per-module table below is still maintained by hand — it is documentation of _where_ the
+The badge points at the dashboard's shields **endpoint** (`badge-api.stryker-mutator.io/…/main`).
+It refreshes when a **release is published** or on **manual dispatch** (Actions → _mutation
+badge_ → Run workflow) — deliberately **not** on every push to `main`, because the mutation run
+is slow and merging a PR should be cheap. `dashboard.version` is pinned to `main` in
+`stryker.config.json` so the report lands on the `…/main` badge regardless of the triggering ref.
+This is the _only_ mutation run in CI and it gates nothing — the falsifiability gate is the local
+pre-push hook. The per-module table below is still maintained by hand — it is documentation of _where_ the
 survivors are, not the headline number.
 
 ## Equivalent mutants (why not 100%)
@@ -335,17 +338,17 @@ critical path of every PR.
 
 ### What CI still does
 
-| Check                           | When                 | Gate?                    |
-| ------------------------------- | -------------------- | ------------------------ |
-| `typecheck · test · build`      | every PR + push      | **required**             |
-| `lint (eslint · prettier)`      | every PR + push      | **required**             |
-| `smoke (headless render check)` | every PR + push¹     | **required**             |
-| `mutation badge (push to main)` | push to `main` only¹ | no — refreshes the badge |
+| Check                           | When                       | Gate?                    |
+| ------------------------------- | -------------------------- | ------------------------ |
+| `typecheck · test · build`      | every PR + push to `main`  | **required**             |
+| `lint (eslint · prettier)`      | every PR + push to `main`  | **required**             |
+| `smoke (headless render check)` | every PR + push to `main`¹ | **required**             |
+| `mutation badge`                | release published · manual | no — refreshes the badge |
 
-¹ The two heavy jobs only do real work when the change touches code/build inputs (an inline
-`git diff` step); a docs/config-only change skips the expensive steps. **smoke** stays a
-required PR gate — it is the only place WebGL rendering is verified (a missing geometry upload
-would clear the canvas to bare sky), and it keeps the "required check must still report on a
-docs PR" trick (skip the steps, not the job). **mutation** now runs only on push to `main`, and
-**only to publish the live dashboard badge** (plus a post-merge backstop on the break
-threshold) — it gates nothing, so a slow runner never blocks a merge.
+¹ **smoke** only does real work when the change touches code/build inputs (an inline `git diff`
+step); a docs/config-only change skips the expensive steps but the job still reports SUCCESS, so
+the required check stays green (skip the steps, not the job). It stays a required PR gate — it is
+the only place WebGL rendering is verified (a missing geometry upload would clear the canvas to
+bare sky). **Mutation is not in this set**: the falsifiability gate runs locally (the pre-push
+hook), and the `mutation badge` workflow runs only on a published release or manual dispatch —
+so **merging a PR never triggers the slow mutation run**, which is the whole point of this split.

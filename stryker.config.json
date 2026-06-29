@@ -5,6 +5,7 @@
   "reporters": ["progress", "clear-text", "json", "html"],
   "dashboard": {
     "project": "github.com/PSthelyBlog/minecraft-test-oracle",
+    "version": "main",
     "reportType": "full"
   },
   "coverageAnalysis": "perTest",

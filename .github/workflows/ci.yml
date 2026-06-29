@@ -44,8 +44,10 @@ jobs:
   # check stays green without a job-level `if:` (a skipped required job would leave the
   # check "pending" and block the merge). The detection is inlined on purpose: routing
   # it through a shared `needs:` job would skip the required check if that job failed.
-  # Mutation testing is NOT a PR gate (it runs locally via the pre-push hook); the
-  # `mutation-badge` job below runs only on push to main to refresh the live badge.
+  # Mutation testing is NOT in this workflow at all: the falsifiability gate runs locally
+  # via the pre-push hook, and the dashboard badge is refreshed by a SEPARATE workflow
+  # (mutation-badge.yml) that runs only on release / manual dispatch — so merging a PR
+  # never triggers the slow (10–23 min) mutation run.
 
   smoke:
     name: smoke (headless render check)
@@ -117,58 +119,3 @@ jobs:
       - name: Skipped (no code/build changes)
         if: steps.changes.outputs.run != 'true'
         run: echo "Docs/config-only PR — render check not needed; required check passes."
-
-  # Mutation testing is NOT a PR gate. The falsifiability gate runs LOCALLY via the
-  # git pre-push hook (scripts/hooks/pre-push, installed once with `npm run hooks:install`):
-  # it runs `npm run mutation:clean` before a push touching code/test/config and blocks the
-  # push if the score drops below threshold. This job runs ONLY on push to main, purely to
-  # (a) refresh the live Stryker-dashboard badge and (b) act as a post-merge backstop. It
-  # blocks nothing (main is push-only via merges) and is not a required check, so it does
-  # not slow PRs down. Docs/config-only pushes to main skip the heavy step.
-  mutation-badge:
-    name: mutation badge (push to main)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Detect code/build changes
-        id: changes
-        run: |
-          base="${{ github.event.before }}"; head="${{ github.sha }}"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-            echo "No usable base ($base) — running mutation."
-            echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
-          fi
-          files=$(git diff --name-only "$base" "$head")
-          echo "Changed files:"; echo "$files"
-          if echo "$files" | grep -qE '^(src/|test/|scripts/|index\.html|package\.json|package-lock\.json|\.npmrc|stryker\.config\.json|vitest\.config\.ts|vite\.config\.ts|tsconfig\.json|\.github/workflows/ci\.yml)'; then
-            echo "run=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "No code/build changes — skipping the badge refresh."
-            echo "run=false" >>"$GITHUB_OUTPUT"
-          fi
-      - uses: actions/setup-node@v6
-        if: steps.changes.outputs.run == 'true'
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-        if: steps.changes.outputs.run == 'true'
-      # Publish the authoritative score to the Stryker dashboard (updates the README
-      # badge). Still honours the break threshold (70) as a post-merge backstop, but it
-      # gates nothing — the gate is the local pre-push hook. STRYKER_DASHBOARD_API_KEY is
-      # a repo secret; the reporter catches an upload/auth error without failing the build.
-      - name: StrykerJS + dashboard
-        if: steps.changes.outputs.run == 'true'
-        env:
-          STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
-        run: npm run mutation -- --reporters progress,clear-text,json,html,dashboard
-      - name: Upload mutation report
-        if: steps.changes.outputs.run == 'true' && always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: mutation-report
-          path: reports/mutation/
-          if-no-files-found: ignore
