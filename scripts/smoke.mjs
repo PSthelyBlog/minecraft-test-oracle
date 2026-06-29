@@ -144,7 +144,7 @@ const checks = {
   noErrors: errors.length === 0,
   hudRan: /xyz:/.test(hud),
   onGround: /ground/.test(hud),
-  hotbar: hotbarSlots === 10,
+  hotbar: hotbarSlots > 0, // the hotbar DOM built (the exact roster is pinned by the blocks oracle)
   webgl: hasWebGL,
   terrainDrawn: render.nonSkyFraction >= 0.5, // world fills the frame; ~0 ⇒ only sky drew (no geometry)
   hasStructure: render.lumStd >= 6, // lit 3D scene varies; a flat/blank canvas has std ~0

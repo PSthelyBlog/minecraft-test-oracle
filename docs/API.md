@@ -45,6 +45,7 @@ interface BlockDef {
   name: string;
   solid: boolean;    // player collides with it (air, water are not solid)
   opaque: boolean;   // fully hides the touching neighbour face (glass/leaves/water do not)
+  emission: number;  // light it radiates, 0..15 (0 for all but light sources, e.g. Glowstone 15)
   color: readonly [number, number, number];   // r,g,b in 0..1
 }
 
@@ -54,14 +55,17 @@ const HOTBAR: readonly BlockId[]                    // placeable blocks, exclude
 blockDef(id: BlockId): BlockDef    // unknown id → the Air definition (total, never throws)
 isSolid(id: BlockId): boolean
 isOpaque(id: BlockId): boolean
+emissionOf(id: BlockId): number    // light level 0..15 (unknown id → 0)
 isAir(id: BlockId): boolean
 ```
 
-`solid` and `opaque` are the two behavioural facets. **`opaque ⇒ solid`** for every block
-(a see-through solid like glass is fine; an opaque non-solid would be a contradiction).
+`solid`, `opaque`, and `emission` are the behavioural facets. **`opaque ⇒ solid`** for every
+block (a see-through solid like glass is fine; an opaque non-solid would be a contradiction).
+`emission` seeds block-light propagation (v0.4); only light sources are non-zero.
 
-> Invariants: a frozen census pins every block's `{solid, opaque, name}`; a golden hash
-> freezes all colours; `blockDef` is total.
+> Invariants: a frozen census pins every block's `{solid, opaque, name, emission}`; `emission`
+> is bounded `0..15` with exactly the light sources non-zero; a golden hash freezes all colours;
+> `blockDef` is total.
 
 ---
 
@@ -206,7 +210,7 @@ n·size`); `chunksAffectedByEdit` reports every chunk an edit can change.
 ## `core/atlas.ts`
 
 ```ts
-const TILE_COUNT = 15
+const TILE_COUNT = 16
 const Tile = { Stone, GrassTop, GrassSide, Dirt, ... }   // tile slots = texture-array layers
 TILE_COLOR: Record<TileIndex, [r,g,b]>                    // base colour per tile (static)
 tileIndexFor(id: BlockId, faceIndex: number): TileIndex   // per-face tile (= layer) choice
