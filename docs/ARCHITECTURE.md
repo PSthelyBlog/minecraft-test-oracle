@@ -64,9 +64,11 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   `moveAndCollide` (per-axis swept resolution).
 - **`atlas.ts`** — tile selection: `tileIndexFor(block, face)` (per-face tile = texture-array
   layer choice). Pure mapping, no Three.js, no grid math.
-- **`light.ts`** — `computeBlockLight(world)`: a multi-source BFS flood-fill from emissive
-  blocks (`emission > 0`), attenuating 1 per step through non-opaque cells (opaque blocks cast
-  shadow). A max-fixpoint, so order-independent; checked against an independent relaxation.
+- **`light.ts`** — `computeBlockLight(world)` and `computeSkyLight(world)`: one shared BFS
+  flood-fill (`floodLight`), attenuating 1 per step through non-opaque cells (opaque blocks cast
+  shadow). Block-light seeds from emissive blocks (`emission > 0`); skylight seeds every cell open
+  to the sky at full brightness, so a vertical drop through open air never attenuates. Both are a
+  max-fixpoint, so order-independent; each checked against an independent relaxation.
 - **`selfcheck.ts`** — `selfCheck()` re-derives the cheapest invariants at boot and throws
   if any is broken.
 

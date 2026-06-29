@@ -230,18 +230,26 @@ the tile is _selected_, not positioned in a grid).
 
 ```ts
 const MAX_LIGHT = 15
-computeBlockLight(world: World): Uint8Array   // per-voxel light 0..15, in world.index order
+computeBlockLight(world: World): Uint8Array   // per-voxel block-light 0..15, in world.index order
+computeSkyLight(world: World): Uint8Array     // per-voxel skylight  0..15, in world.index order
 ```
 
-Block-light propagation. Every emitter (`emissionOf > 0`) is seeded with its emission, then a
+**Block-light.** Every emitter (`emissionOf > 0`) is seeded with its emission, then a
 multi-source BFS propagates `level - 1` into **non-opaque** neighbours — opaque blocks block the
 spread and stay dark, but an opaque emitter still radiates its own emission. The result is a
 max-fixpoint (a shortest-path distance field), so it is independent of traversal order.
 
-> Invariants: levels stay in `[0, 15]`; opaque non-emitters are `0`; a lit non-source cell has a
-> neighbour brighter by ≥ 1 (light never appears from nowhere); a lone source in open air decays
-> by exactly Manhattan distance; an opaque occluder only ever darkens. Re-derived against an
-> independent relaxation to the same fixpoint.
+**Skylight.** The same flood, seeded from open sky instead of emitters: walking each column from
+the top down, every cell with nothing opaque above it holds `MAX_LIGHT` until the first opaque
+block. Because the whole open column is seeded at full brightness, a vertical drop through open
+air never attenuates (the Classic rule); only spread into shadow costs a level. A roof darkens
+everything beneath it.
+
+> Invariants (both): levels stay in `[0, 15]`; opaque cells are `0`; a lit cell that isn't its
+> own source has a neighbour brighter by ≥ 1 (light never appears from nowhere); an opaque
+> occluder only ever darkens. Block-light: a lone source in open air decays by exactly Manhattan
+> distance. Skylight: sky-exposed cells are full, and a lone roof block casts an exactly-14
+> shadow column. Both are re-derived against an independent relaxation to the same fixpoint.
 
 ---
 
