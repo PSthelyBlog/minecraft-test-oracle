@@ -275,6 +275,27 @@ edit of a random edit-sequence.
 
 ---
 
+## `core/water.ts`
+
+```ts
+const MAX_WATER = 7
+computeWater(world: World): Uint8Array   // per-voxel water level 0..MAX_WATER, in world.index order
+```
+
+Water flow as a deterministic CA (a derived field, not stored blocks). `Block.Water` cells are
+**sources** at `MAX_WATER`; water **falls** into the open cell below at full level, **spreads**
+horizontally at `level - 1`, never flows up, and never enters a solid cell. Seeding sources and
+flooding converges to the least fixpoint of that rule — order-independent.
+
+> Invariants: levels stay in `[0, MAX_WATER]`; solid cells are `0`; `Block.Water` cells are full;
+> every non-source watered cell has an inflow witness (water directly above, or a horizontal
+> neighbour one level higher — water never appears from nowhere); adding a solid block never
+> raises water (damming). Pinned by the **fixpoint** condition itself, an independent relaxation,
+> floor/waterfall closed-form goldens, and a seeded-terrain golden. (Rendering is a follow-up;
+> this is the oracle-tested core field.)
+
+---
+
 ## `core/terrain.ts`
 
 ```ts

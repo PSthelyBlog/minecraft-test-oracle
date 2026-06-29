@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 133 oracle tests once (Vitest)
+npm test            # run all 140 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -130,8 +130,9 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate       |
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)                   |
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
+| `water.ts`       |           ~86% | flow CA (fixpoint/relaxation/reachability); all 8 survivors equivalent (classes below)  |
 | `light.ts`       |           ~84% | block/sky/combined + incremental updates; all 30 survivors equivalent (classes below)   |
-| **overall**      |     **~93.9%** | 133 tests across 16 files                                                               |
+| **overall**      |     **~93.5%** | 140 tests across 17 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -304,6 +305,20 @@ orig.set(c, …)` → `true`/`false` on cells the update only ever touches once 
   length/overflow guards were _removed_, not documented: they were fully backstopped by DataView's
   bounds-checking and the coverage check, so no test could kill them — a redundant line, not an
   oracle gap.)
+- **`water.ts` survivors (8, all equivalent).** Water flow is the least fixpoint of a monotone
+  CA, pinned by the **fixpoint** condition itself (`F(result) == result`), an **independent
+  relaxation** (Gauss–Seidel == the BFS), a **reachability** invariant (every drop has an inflow
+  witness), a **damming** metamorphic, and floor/waterfall/terrain goldens. What survives is in
+  classes already seen, all output-preserving:
+  - _seed + queue loop bounds_ (`y/z/x < size` → `<=` ×3, and `head < qx.length` → `<=`): the
+    extra iteration reads one cell out of bounds (→ Air, not a `Water` source) or an `undefined`
+    queue slot (`inBounds(NaN)` is false), a no-op — the shared loop-bound class.
+  - _horizontal neighbour-offset signs_ (`x + dx` → `x − dx`, `z + dz` → `z − dz`): `HORIZONTAL`
+    lists each axis as both `+1` and `−1`, so flipping a sign visits the same four neighbours in a
+    different order → the same field (the `NEIGHBORS` symmetric-offset class).
+  - _the fall guard_ (`water[bi] < MAX_WATER` → `true` / `<=`): the cell below a water cell always
+    fills to `MAX_WATER`; the guard only avoids redundantly re-enqueuing a cell already at full,
+    so forcing it changes the queue work but not the field (the `<`/`<=` redundant-guard class).
 
 `raycast.ts` used to sit lowest (~84%) precisely because DDA traversal has many
 degenerate-input guards. The ones that encode a _choice_ (tie-break order, inclusive reach,

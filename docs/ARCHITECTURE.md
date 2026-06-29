@@ -77,6 +77,11 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   (two-pass remove/add; skylight re-seeds the open column below the edit) and return the exact
   changed-cell set; `ChunkedTerrain` uses it to remesh only the affected chunks. Pinned by a
   differential oracle (incremental == from-scratch after every edit of a random sequence).
+- **`water.ts`** — `computeWater(world)`: water flow as a deterministic CA (a derived level field,
+  not stored blocks). `Block.Water` cells are sources; water falls full into the cell below and
+  spreads horizontally at one less, never up or into solids — the least fixpoint of that rule.
+  Oracle-tested core only (fixpoint / independent relaxation / reachability / goldens); rendering
+  is a follow-up.
 - **`selfcheck.ts`** — `selfCheck()` re-derives the cheapest invariants at boot and throws
   if any is broken.
 
