@@ -237,6 +237,12 @@ const MAX_LIGHT = 15
 computeBlockLight(world: World): Uint8Array   // per-voxel block-light 0..15, in world.index order
 computeSkyLight(world: World): Uint8Array     // per-voxel skylight  0..15, in world.index order
 computeLight(world: World): Uint8Array        // per-voxel max(block, sky) — the field the mesher uses
+
+// Incremental updates after a single edit at (x,y,z) (world already mutated). Mutate the
+// field(s) in place and return the flat indices whose value changed.
+updateBlockLight(world, light, x, y, z): number[]
+updateSkyLight(world, light, x, y, z): number[]
+updateLight(world, blockLight, skyLight, combined, x, y, z): number[]   // updates all three; returns changed combined cells
 ```
 
 **Block-light.** Every emitter (`emissionOf > 0`) is seeded with its emission, then a
@@ -251,8 +257,15 @@ air never attenuates (the Classic rule); only spread into shadow costs a level. 
 everything beneath it.
 
 **Combined.** `computeLight` is the cell-wise `max(blockLight, skyLight)` — a cell is as lit as
-the brighter of the sky or a nearby emitter reaches it. This is the field the mesher dims faces
-by (recomputed whole on each edit until incremental updates land in #66).
+the brighter of the sky or a nearby emitter reaches it. This is the field the mesher dims faces by.
+
+**Incremental.** After a single edit, `updateBlockLight` / `updateSkyLight` / `updateLight` mutate
+the existing field(s) in place instead of recomputing the world, using the classic two-pass
+scheme (a removal flood clears light that traced back to what darkened, then an add flood
+re-propagates from the borders + new sources; skylight additionally re-seeds the open-sky column
+below the edit). They return the exact set of changed cells, so the renderer remeshes only the
+affected chunks. Pinned by the **differential** oracle: incremental == from-scratch after every
+edit of a random edit-sequence.
 
 > Invariants (both): levels stay in `[0, 15]`; opaque cells are `0`; a lit cell that isn't its
 > own source has a neighbour brighter by ≥ 1 (light never appears from nowhere); an opaque
