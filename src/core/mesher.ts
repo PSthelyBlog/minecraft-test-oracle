@@ -22,9 +22,19 @@
  */
 
 import type { World } from "./world";
-import { Block, isOpaque } from "./blocks";
+import { Block, isOpaque, type BlockId } from "./blocks";
 import { tileIndexFor } from "./atlas";
 import { MAX_LIGHT } from "./light";
+
+/**
+ * Whether a block contributes geometry to the OPAQUE terrain mesh. Air is empty;
+ * Water is non-empty but drawn separately as a translucent fluid (see `waterMesh.ts`),
+ * so the terrain mesher skips both. Water stays non-opaque, so it still reveals the
+ * faces of solid blocks behind it — you see the lakebed through it.
+ */
+export function rendersInTerrain(id: BlockId): boolean {
+  return id !== Block.Air && id !== Block.Water;
+}
 
 export interface ChunkMesh {
   readonly positions: Float32Array; // xyz per vertex
@@ -38,7 +48,7 @@ export interface ChunkMesh {
 }
 
 /** The 6 face directions and the unit quad. */
-interface Face {
+export interface Face {
   readonly normal: readonly [number, number, number];
   /**
    * 4 corner offsets, ordered counter-clockwise as seen from OUTSIDE the block,
@@ -50,7 +60,7 @@ interface Face {
   readonly shade: number;
 }
 
-const FACES: readonly Face[] = [
+export const FACES: readonly Face[] = [
   {
     // +X
     normal: [1, 0, 0],
@@ -132,7 +142,7 @@ const FACES: readonly Face[] = [
  * a future greedy quad spanning N×M cells emits UVs up to (N, M) so the tile repeats.
  * Pinned by the mesher's golden-UV and per-face UV/layer-census oracles.
  */
-const FACE_UV: readonly (readonly [number, number])[] = [
+export const FACE_UV: readonly (readonly [number, number])[] = [
   [0, 1],
   [1, 1],
   [1, 0],
@@ -275,7 +285,7 @@ function meshRange(
     for (let z = z0; z < z1; z++) {
       for (let x = x0; x < x1; x++) {
         const id = world.get(x, y, z);
-        if (id === Block.Air) continue;
+        if (!rendersInTerrain(id)) continue;
 
         for (let fi = 0; fi < FACES.length; fi++) {
           if (!isFaceVisible(world, x, y, z, fi)) continue;
@@ -500,7 +510,7 @@ function meshRangeGreedy(
           cell[u] = lo[u] + su;
           cell[v] = lo[v] + sv;
           const id = world.get(cell[0], cell[1], cell[2]);
-          if (id === Block.Air) continue;
+          if (!rendersInTerrain(id)) continue;
           if (!isFaceVisible(world, cell[0], cell[1], cell[2], d)) continue;
           const levels = [0, 0, 0, 0];
           for (let k = 0; k < 4; k++)

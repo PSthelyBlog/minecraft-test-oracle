@@ -80,8 +80,12 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
 - **`water.ts`** — `computeWater(world)`: water flow as a deterministic CA (a derived level field,
   not stored blocks). `Block.Water` cells are sources; water falls full into the cell below and
   spreads horizontally at one less, never up or into solids — the least fixpoint of that rule.
-  Oracle-tested core only (fixpoint / independent relaxation / reachability / goldens); rendering
-  is a follow-up.
+  Oracle-tested core (fixpoint / independent relaxation / reachability / goldens).
+- **`waterMesh.ts`** — `buildWaterMesh` / `buildWaterChunkMesh`: the translucent water pass. A
+  watered cell emits a cube; a face shows only where it meets open air (water-vs-water and
+  buried faces culled), shaded `faceShade × lightFactor`. `ChunkedTerrain` draws it in a separate
+  `waterGroup` with an alpha-blended material; the opaque terrain mesher skips `Block.Water`
+  (`rendersInTerrain`). Pinned by a where/shade/winding census suite (100% mutation score).
 - **`selfcheck.ts`** — `selfCheck()` re-derives the cheapest invariants at boot and throws
   if any is broken.
 

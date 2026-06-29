@@ -19,7 +19,27 @@ import {
 } from "three";
 import { buildTileArrayTexture } from "./atlasTexture";
 
+/** The opaque terrain material — solid blocks textured from the tile array. */
 export function buildTerrainMaterial(): MeshLambertMaterial {
+  return buildTileArrayMaterial({});
+}
+
+/**
+ * The translucent water material — same tile-array sampling and per-vertex shading as
+ * terrain, but alpha-blended (and `depthWrite` off so the water surface doesn't occlude
+ * the geometry behind it). Drawn as a separate pass over the water mesh.
+ */
+export function buildWaterMaterial(): MeshLambertMaterial {
+  return buildTileArrayMaterial({ transparent: true, opacity: 0.72, depthWrite: false });
+}
+
+interface TileArrayOpts {
+  transparent?: boolean;
+  opacity?: number;
+  depthWrite?: boolean;
+}
+
+function buildTileArrayMaterial(opts: TileArrayOpts): MeshLambertMaterial {
   const tiles = buildTileArrayTexture();
 
   // A 1×1 white stand-in `map`: setting `map` is what makes three define USE_MAP, so
@@ -37,7 +57,13 @@ export function buildTerrainMaterial(): MeshLambertMaterial {
   white.minFilter = NearestFilter;
   white.needsUpdate = true;
 
-  const mat = new MeshLambertMaterial({ vertexColors: true, map: white });
+  const mat = new MeshLambertMaterial({
+    vertexColors: true,
+    map: white,
+    transparent: opts.transparent ?? false,
+    opacity: opts.opacity ?? 1,
+    depthWrite: opts.depthWrite ?? true,
+  });
 
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTiles = { value: tiles };

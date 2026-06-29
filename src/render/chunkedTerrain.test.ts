@@ -21,6 +21,7 @@ import { ChunkedTerrain } from "./chunkedTerrain";
  */
 
 const MAT = new MeshBasicMaterial();
+const WATER_MAT = new MeshBasicMaterial({ transparent: true });
 
 const normalToDir = (nx: number, ny: number, nz: number): number =>
   nx === 1 ? 0 : nx === -1 ? 1 : ny === 1 ? 2 : ny === -1 ? 3 : nz === 1 ? 4 : 5;
@@ -84,7 +85,7 @@ describe("ChunkedTerrain oracle", () => {
     w.set(18, 5, 2, Block.Glass);
     w.set(10, 8, 17, Block.Leaves);
     for (let x = 0; x < 20; x++) w.set(x, 0, x % 20, Block.Grass);
-    const terrain = new ChunkedTerrain(w, MAT, 16);
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 16);
     expect(groupFaceKeys(terrain)).toEqual(wholeFaceKeys(w));
   });
 
@@ -105,7 +106,7 @@ describe("ChunkedTerrain oracle", () => {
         (cells, edits, chunkSize) => {
           const w = new World(5, 5, 5);
           cells.forEach((b, i) => (w.data[i] = b));
-          const terrain = new ChunkedTerrain(w, MAT, chunkSize);
+          const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, chunkSize);
 
           for (const { flat, id: newId } of edits) {
             const x = flat % 5,
@@ -124,7 +125,7 @@ describe("ChunkedTerrain oracle", () => {
 
   // An all-air world produces no draw calls (every chunk empty → no child meshes).
   test("empty world adds no chunk meshes", () => {
-    const terrain = new ChunkedTerrain(new World(16, 16, 16), MAT, 8);
+    const terrain = new ChunkedTerrain(new World(16, 16, 16), MAT, WATER_MAT, 8);
     expect(terrain.group.children.length).toBe(0);
   });
 });

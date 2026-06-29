@@ -185,6 +185,10 @@ partial chunk) but culls against the full world, so the chunks tile the world an
 into the exact whole-world mesh — no seams. Vertices are emitted in **world** coordinates, so
 each chunk's geometry sits at the origin.
 
+`Block.Water` contributes **no** terrain geometry (`rendersInTerrain` skips it) — water is
+drawn separately by `waterMesh.ts` as a translucent pass — but it stays non-opaque, so it still
+reveals the solid faces behind it (you see the lakebed).
+
 `buildGreedyMesh` / `buildGreedyChunkMesh` merge coplanar, adjacent faces that share a tile
 (layer) **and** are uniformly lit (all four AO corners equal **and** the same face light level)
 into maximal rectangles, so a
@@ -291,8 +295,27 @@ flooding converges to the least fixpoint of that rule — order-independent.
 > every non-source watered cell has an inflow witness (water directly above, or a horizontal
 > neighbour one level higher — water never appears from nowhere); adding a solid block never
 > raises water (damming). Pinned by the **fixpoint** condition itself, an independent relaxation,
-> floor/waterfall closed-form goldens, and a seeded-terrain golden. (Rendering is a follow-up;
-> this is the oracle-tested core field.)
+> floor/waterfall closed-form goldens, and a seeded-terrain golden.
+
+---
+
+## `core/waterMesh.ts`
+
+```ts
+buildWaterMesh(world, water, light): ChunkMesh                          // whole-world water surface
+buildWaterChunkMesh(world, water, light, cx, cy, cz, chunkSize?): ChunkMesh   // one chunk's water
+isWaterFaceVisible(world, water, x, y, z, fi): boolean
+```
+
+The translucent counterpart of the terrain mesher. A water cell (`water[c] > 0`) emits a full
+unit cube; a face shows only where the neighbour across it is open air (no water there and not
+opaque), so water-vs-water and buried-against-rock faces are culled. Faces reuse the terrain
+mesher's winding-verified `FACES`/`FACE_UV` and the water tile, shaded `faceShade × lightFactor`
+(no AO). Drawn in `buildWaterMaterial()` (the terrain material, alpha-blended, `depthWrite` off).
+
+> Pinned by a **where-census** (faces appear exactly where a watered cell faces air, re-derived
+> from the field), a **shade census**, **outward winding**, and the per-chunk union census — every
+> mutant killed (100%).
 
 ---
 
