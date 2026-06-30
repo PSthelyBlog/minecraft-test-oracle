@@ -282,20 +282,20 @@ edit of a random edit-sequence.
 ## `core/water.ts`
 
 ```ts
-const MAX_WATER = 7
-computeWater(world: World): Uint8Array   // per-voxel water level 0..MAX_WATER, in world.index order
+computeWater(world: World): Uint8Array   // per-voxel water presence 0/1, in world.index order
 ```
 
-Water flow as a deterministic CA (a derived field, not stored blocks). `Block.Water` cells are
-**sources** at `MAX_WATER`; water **falls** into the open cell below at full level, **spreads**
-horizontally at `level - 1`, never flows up, and never enters a solid cell. Seeding sources and
-flooding converges to the least fixpoint of that rule — order-independent.
+Water flow as a deterministic **flood fill** (the Minecraft Classic model; a derived 0/1 field, not
+stored blocks). `Block.Water` cells are **sources**; water floods into non-solid cells **sideways**
+(the four horizontal neighbours) and **downward**, never up and never into a solid cell. So it fills
+reachable gaps and lies flat. Seeding sources and flooding converges to the least fixpoint of that
+rule (the cells reachable by non-rising steps) — order-independent.
 
-> Invariants: levels stay in `[0, MAX_WATER]`; solid cells are `0`; `Block.Water` cells are full;
-> every non-source watered cell has an inflow witness (water directly above, or a horizontal
-> neighbour one level higher — water never appears from nowhere); adding a solid block never
-> raises water (damming). Pinned by the **fixpoint** condition itself, an independent relaxation,
-> floor/waterfall closed-form goldens, and a seeded-terrain golden.
+> Invariants: values are `0`/`1`; solid cells are `0`; `Block.Water` cells are wet; every
+> non-source watered cell has an inflow witness (water directly above, or a horizontal water
+> neighbour — water never appears from nowhere and never rises); adding a solid block never adds
+> water (damming). Pinned by an **independent reachability relaxation**, the **fixpoint** condition
+> itself, gap-filling / waterfall / never-rises goldens, and a seeded-terrain golden.
 
 ---
 

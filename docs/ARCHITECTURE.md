@@ -77,10 +77,11 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   (two-pass remove/add; skylight re-seeds the open column below the edit) and return the exact
   changed-cell set; `ChunkedTerrain` uses it to remesh only the affected chunks. Pinned by a
   differential oracle (incremental == from-scratch after every edit of a random sequence).
-- **`water.ts`** — `computeWater(world)`: water flow as a deterministic CA (a derived level field,
-  not stored blocks). `Block.Water` cells are sources; water falls full into the cell below and
-  spreads horizontally at one less, never up or into solids — the least fixpoint of that rule.
-  Oracle-tested core (fixpoint / independent relaxation / reachability / goldens).
+- **`water.ts`** — `computeWater(world)`: water flow as a deterministic flood fill (the Minecraft
+  Classic model; a derived 0/1 field, not stored blocks). `Block.Water` cells are sources; water
+  floods into non-solid cells sideways and downward, never up or into solids — so it fills reachable
+  gaps and lies flat, the least fixpoint of that rule. Oracle-tested core (independent reachability
+  relaxation / fixpoint / inflow-witness invariant / damming / goldens).
 - **`waterMesh.ts`** — `buildWaterMesh` / `buildWaterChunkMesh`: the translucent water pass. A
   watered cell emits a cube; a face shows only where it meets open air (water-vs-water and
   buried faces culled), shaded `faceShade × lightFactor`. `ChunkedTerrain` draws it in a separate
