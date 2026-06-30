@@ -124,7 +124,16 @@ scene.add(highlight);
 const HALF: Vec3 = [0.3, 0.9, 0.3]; // 0.6 x 1.8 x 0.6 box
 const EYE = 0.72; // eye offset above the box centre
 const REACH = 6;
-const TUNING: MovementTuning = { walk: 5.2, fly: 11, gravity: -28, jump: 9, half: HALF };
+const TUNING: MovementTuning = {
+  walk: 5.2,
+  fly: 11,
+  gravity: -28,
+  jump: 9,
+  half: HALF,
+  swimDrag: 0.5, // half speed at full submersion
+  buoyancy: 0.8, // sink slowly (20% gravity) when fully underwater
+  swimUp: 4, // gentle upward stroke holding jump
+};
 
 const spawnH = heightAt(SEED, SIZE_Y, SIZE_X >> 1, SIZE_Z >> 1);
 let player: PlayerState = {
@@ -267,7 +276,7 @@ function updatePlayer(dt: number): void {
     up: (keys.has("Space") ? 1 : 0) - (keys.has("ShiftLeft") ? 1 : 0),
     jump: keys.has("Space"),
   };
-  player = stepMovement(world, player, input, dt, TUNING);
+  player = stepMovement(world, terrain.waterField, player, input, dt, TUNING);
 
   // Respawn if you somehow fall out of the world.
   if (player.pos[1] < -5) {

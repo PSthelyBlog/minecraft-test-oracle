@@ -63,8 +63,9 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
 - **`persistence.ts`** — save/load: run-length encodes a `World` to a compact binary blob
   (`encodeWorld`/`decodeWorld`) and base64 string (`serializeWorld`/`deserializeWorld`) for
   localStorage. `decode∘encode` is an exact round-trip, pinned by the census oracle.
-- **`physics.ts`** — AABB-vs-voxel collision: `boxIntersectsSolid` (overlap test) and
-  `moveAndCollide` (per-axis swept resolution).
+- **`physics.ts`** — AABB-vs-voxel collision: `boxIntersectsSolid` (overlap test),
+  `moveAndCollide` (per-axis swept resolution), and `submersion` (fraction of the player box in
+  water, for buoyancy/drag).
 - **`atlas.ts`** — tile selection: `tileIndexFor(block, face)` (per-face tile = texture-array
   layer choice). Pure mapping, no Three.js, no grid math.
 - **`light.ts`** — `computeBlockLight(world)` and `computeSkyLight(world)`: one shared BFS
@@ -95,8 +96,8 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
 ### `src/game`
 
 - **`movement.ts`** — `stepMovement`, the pure per-frame player update: input → velocity
-  (gravity, jump-gating, fly, diagonal normalization) → delegates collision to
-  `moveAndCollide` → returns the next `PlayerState`.
+  (gravity, jump-gating, fly, diagonal normalization, and swim buoyancy/drag/stroke from
+  `submersion`) → delegates collision to `moveAndCollide` → returns the next `PlayerState`.
 
 ### `src/render` and `src/main.ts`
 
@@ -143,7 +144,7 @@ oracle suite guards.
 1. **`dt`** = `min((now − last)/1000, 0.05)` — clamped so a stutter can't tunnel the player
    through a wall.
 2. **`updatePlayer(dt)`** — reads the held keys into a `MovementInput`, calls
-   `stepMovement(world, player, input, dt, TUNING)`, and reassigns `player`. Respawns if
+   `stepMovement(world, terrain.waterField, player, input, dt, TUNING)`, and reassigns `player`. Respawns if
    the player falls below `y = −5`.
 3. **`updateCamera()`** — positions the camera at the eye (player centre + `EYE = 0.72`) and
    sets its rotation from `yaw`/`pitch`.
