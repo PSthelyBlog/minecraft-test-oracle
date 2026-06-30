@@ -29,14 +29,16 @@ page.on("pageerror", (e) => errors.push("PAGEERROR: " + e.message));
 
 await page.goto(URL, { waitUntil: "networkidle" });
 // Wait for the CONDITION, not a fixed sleep: the player spawns a few blocks up and
-// falls under gravity, so a hard 1500ms wait races the landing on a slow runner and
-// flakily reads "air". Poll the HUD until physics has resolved the player onto the
-// ground (which also proves the frame loop ran for many frames). If it never lands —
-// a real regression — this times out and the onGround check below reports the failure
-// with the usual census output rather than throwing here.
+// falls under gravity (and, at the waterline spawn, sinks the last bit slowed by swim
+// buoyancy/drag), so a fixed sleep races the landing on a slow runner and flakily reads
+// "air". Poll the HUD until physics has resolved the player onto the ground (which also
+// proves the frame loop ran for many frames). The timeout is generous because under
+// software-WebGL CI the frame loop is render-bound (few frames/sec), so settling takes
+// many wall-clock seconds. If it never lands — a real regression — this times out and the
+// onGround check below reports the failure with the usual census output (not a throw).
 await page
   .waitForFunction(() => /ground/.test(document.getElementById("hud")?.innerText ?? ""), null, {
-    timeout: 15000,
+    timeout: 30000,
     polling: 100,
   })
   .catch(() => {});
