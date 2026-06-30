@@ -124,7 +124,7 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `math.ts`        |           100% |                                                                                         |
 | `movement.ts`    |           100% |                                                                                         |
 | `atlas.ts`       |           100% | per-face tile (layer) selection; `TILE_COLOR` static (injection-proven)                 |
-| `waterMesh.ts`   |           ~99% | translucent water pass; where/shade/winding/**height/UV** censuses; 1 equiv survivor     |
+| `waterMesh.ts`   |           ~99% | translucent water pass; where/shade/winding/**height/UV** censuses; 1 equiv survivor    |
 | `physics.ts`     |           ~98% |                                                                                         |
 | `world.ts`       |           ~97% |                                                                                         |
 | `mesher.ts`      |           ~96% | incl. chunked + greedy meshing, tile-local UV/layer, AO, light; 16 equivalent survivors |
