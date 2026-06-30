@@ -2,7 +2,7 @@ import { describe, test, expect } from "vitest";
 import fc from "fast-check";
 import { World } from "./world";
 import { Block, isOpaque } from "./blocks";
-import { computeWater } from "./water";
+import { computeWater, MAX_WATER } from "./water";
 import { computeLight, MAX_LIGHT } from "./light";
 import { chunkDims, type ChunkMesh } from "./mesher";
 import { buildWaterMesh, buildWaterChunkMesh } from "./waterMesh";
@@ -40,17 +40,33 @@ const fill = (cells: number[]): World => {
   return w;
 };
 
-/** The owning cell of quad `f` (the watered cell on the inner side of its face). */
+/**
+ * The owning cell of quad `f` (the watered cell on the inner side of its face).
+ * Partial-height water lowers the top face — and the top edge of the side faces — to
+ * `y + h` with `h ∈ (0,1]`, while every bottom edge stays at the integer `y`. So X/Z
+ * recover from the (unscaled) face centre minus half the normal as before; for Y the
+ * `+Y` face (which has no corner at the cell bottom) is recovered from its partial top
+ * via `ceil(top) − 1` (correct for any `h ∈ (0,1]`), and every other face still floors
+ * the centre − ½·normal to the cell.
+ */
 const owningCell = (m: ChunkMesh, f: number): [number, number, number] => {
   const p0 = f * 4 * 3;
   const nx = m.normals[p0],
     ny = m.normals[p0 + 1],
     nz = m.normals[p0 + 2];
-  return [
-    Math.floor((m.positions[p0] + m.positions[p0 + 6]) / 2 - nx * 0.5),
-    Math.floor((m.positions[p0 + 1] + m.positions[p0 + 7]) / 2 - ny * 0.5),
-    Math.floor((m.positions[p0 + 2] + m.positions[p0 + 8]) / 2 - nz * 0.5),
-  ];
+  const cx = Math.floor((m.positions[p0] + m.positions[p0 + 6]) / 2 - nx * 0.5);
+  const cz = Math.floor((m.positions[p0 + 2] + m.positions[p0 + 8]) / 2 - nz * 0.5);
+  const cy =
+    ny === 1
+      ? Math.ceil(Math.max(m.positions[p0 + 1], m.positions[p0 + 7])) - 1
+      : Math.floor((m.positions[p0 + 1] + m.positions[p0 + 7]) / 2 - ny * 0.5);
+  return [cx, cy, cz];
+};
+
+/** The render fill-height of a water cell: full when submerged, else level/MAX_WATER. */
+const fillHeight = (w: World, water: Uint8Array, x: number, y: number, z: number): number => {
+  const above = w.inBounds(x, y + 1, z) ? water[w.index(x, y + 1, z)] : 0;
+  return above > 0 ? 1 : water[w.index(x, y, z)] / MAX_WATER;
 };
 
 /** Visible water faces straight from the field, INDEPENDENT of the builder. */
@@ -151,6 +167,71 @@ describe("water mesh oracle", () => {
         }
       }),
       { numRuns: 120 },
+    );
+  });
+
+  // HEIGHT CENSUS (headline for #78): every water face tops out at the cell's fill
+  // height y + level/MAX_WATER (full when submerged), re-derived from the field. The top
+  // (+Y) face's four vertices sit at that height; the bottom at y; a side face spans
+  // [y, y + h]. A full-cube regression (top at y+1) disagrees on every level < MAX
+  // surface cell.
+  test("height census: water faces top out at y + level/MAX (full when submerged)", () => {
+    fc.assert(
+      fc.property(randomCells, (cells) => {
+        const w = fill(cells);
+        const water = computeWater(w);
+        const m = buildWaterMesh(w, water, computeLight(w));
+        for (let f = 0; f < m.faceCount; f++) {
+          const no = f * 12;
+          const ny = m.normals[no + 1];
+          const [cx, cy, cz] = owningCell(m, f);
+          const h = fillHeight(w, water, cx, cy, cz);
+          const bottom = cy;
+          const top = cy + h;
+          const ys = [0, 1, 2, 3].map((k) => m.positions[(f * 4 + k) * 3 + 1]);
+          if (ny === 1) {
+            for (const y of ys) expect(y).toBeCloseTo(top, 6); // top face at the surface
+          } else if (ny === -1) {
+            for (const y of ys) expect(y).toBeCloseTo(bottom, 6); // bottom at integer y
+          } else {
+            const s = [...ys].sort((a, b) => a - b); // side face: 2 low, 2 high
+            expect(s[0]).toBeCloseTo(bottom, 6);
+            expect(s[1]).toBeCloseTo(bottom, 6);
+            expect(s[2]).toBeCloseTo(top, 6);
+            expect(s[3]).toBeCloseTo(top, 6);
+          }
+        }
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  // UV CENSUS: a side face's tile is CROPPED to the partial height, not stretched — its
+  // vertical UV t equals the vertex's fractional rise above the cell bottom (0 at y, h at
+  // the partial top), so one world-unit of height always samples one tile. The top/bottom
+  // caps are horizontal, so their UVs stay the full unit tile (t ∈ {0,1}).
+  test("uv census: side tiles crop to height; caps keep the full tile", () => {
+    fc.assert(
+      fc.property(randomCells, (cells) => {
+        const w = fill(cells);
+        const water = computeWater(w);
+        const m = buildWaterMesh(w, water, computeLight(w));
+        for (let f = 0; f < m.faceCount; f++) {
+          const no = f * 12;
+          const ny = m.normals[no + 1];
+          const [, cy] = owningCell(m, f);
+          for (let k = 0; k < 4; k++) {
+            const y = m.positions[(f * 4 + k) * 3 + 1];
+            const t = m.uvs[(f * 4 + k) * 2 + 1];
+            if (ny === 0) {
+              expect(t).toBeCloseTo(y - cy, 6); // t == rise above the cell bottom (0 or h)
+            } else {
+              expect(t === 0 || t === 1).toBe(true); // cap tile unscaled
+            }
+          }
+        }
+      }),
+      { numRuns: 150 },
     );
   });
 
