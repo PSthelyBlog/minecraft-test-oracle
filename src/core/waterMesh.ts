@@ -1,22 +1,22 @@
 /**
  * Water mesh builder — the translucent counterpart of the terrain mesher.
  *
- * Water is a derived LEVEL field (see `water.ts`), not stored blocks, so it gets its
- * own geometry pass drawn in a transparent material. A water cell (level > 0) emits a
- * full unit cube; a face is shown only where the neighbour across it is open air to
- * look through — i.e. no water there and not opaque — so water-vs-water faces and faces
- * buried against rock are culled, leaving just the visible surface of each body.
+ * Water is a derived PRESENCE field (0/1, see `water.ts`'s flood fill), not stored
+ * blocks, so it gets its own geometry pass drawn in a transparent material. A water cell
+ * emits a full unit cube; a face is shown only where the neighbour across it is open air
+ * to look through — i.e. no water there and not opaque — so water-vs-water faces and
+ * faces buried against rock are culled, leaving just the visible surface of each body.
  *
  * Faces share the terrain mesher's winding-verified `FACES`/`FACE_UV` tables and the
- * water atlas tile, and are shaded `faceShade × lightFactor(light)` (no AO — a fluid
- * surface needs no corner darkening). This is oracle-tested against an independent
- * "where the visible water faces are" census, the shade, and the outward winding.
+ * water atlas tile, and are shaded per channel `faceShade × lightFactor(light_c)` (no AO
+ * — a fluid surface needs no corner darkening). This is oracle-tested against an
+ * independent "where the visible water faces are" census, the shade, and outward winding.
  */
 
 import type { World } from "./world";
 import { Block, isOpaque } from "./blocks";
 import { tileIndexFor } from "./atlas";
-import { MAX_LIGHT } from "./light";
+import { MAX_LIGHT, type RGBLight } from "./light";
 import { FACES, FACE_UV, lightFactor, CHUNK_SIZE, type ChunkMesh } from "./mesher";
 
 /** Water level at a cell, with out-of-bounds (the world edge) reading as dry. */
@@ -25,10 +25,17 @@ function waterAt(water: Uint8Array, world: World, x: number, y: number, z: numbe
   return water[world.index(x, y, z)];
 }
 
-/** Light at a cell for shading, with out-of-bounds (open sky) reading as full light. */
-function lightAt(light: Uint8Array, world: World, x: number, y: number, z: number): number {
-  if (!world.inBounds(x, y, z)) return MAX_LIGHT;
-  return light[world.index(x, y, z)];
+/** RGB light at a cell for shading, with out-of-bounds (open sky) reading as full light. */
+function lightAt(
+  light: RGBLight,
+  world: World,
+  x: number,
+  y: number,
+  z: number,
+): [number, number, number] {
+  if (!world.inBounds(x, y, z)) return [MAX_LIGHT, MAX_LIGHT, MAX_LIGHT];
+  const i = world.index(x, y, z);
+  return [light.r[i], light.g[i], light.b[i]];
 }
 
 /**
@@ -61,7 +68,7 @@ export function isWaterFaceVisible(
 function meshWaterRange(
   world: World,
   water: Uint8Array,
-  light: Uint8Array,
+  light: RGBLight,
   x0: number,
   y0: number,
   z0: number,
@@ -86,15 +93,18 @@ function meshWaterRange(
           if (!isWaterFaceVisible(world, water, x, y, z, fi)) continue;
           const f = FACES[fi];
           const layer = tileIndexFor(Block.Water, fi);
-          // Shade by the open cell the face looks into (same convention as solid faces).
-          const lf = lightFactor(lightAt(light, world, x + f.normal[0], y + f.normal[1], z + f.normal[2])); // prettier-ignore
-          const shade = f.shade * lf;
+          // Shade by the RGB light at the open cell the face looks into (same convention
+          // as solid faces), per channel — no AO (a fluid surface needs no corner darkening).
+          const [lr, lg, lb] = lightAt(light, world, x + f.normal[0], y + f.normal[1], z + f.normal[2]); // prettier-ignore
+          const shadeR = f.shade * lightFactor(lr);
+          const shadeG = f.shade * lightFactor(lg);
+          const shadeB = f.shade * lightFactor(lb);
           const base = positions.length / 3;
           for (let k = 0; k < 4; k++) {
             const c = f.corners[k];
             positions.push(x + c[0], y + c[1], z + c[2]);
             normals.push(f.normal[0], f.normal[1], f.normal[2]);
-            colors.push(shade, shade, shade);
+            colors.push(shadeR, shadeG, shadeB);
             uvs.push(FACE_UV[k][0], FACE_UV[k][1]);
             layers.push(layer);
           }
@@ -119,7 +129,7 @@ function meshWaterRange(
 }
 
 /** Whole-world water mesh (the oracle reference the per-chunk union is checked against). */
-export function buildWaterMesh(world: World, water: Uint8Array, light: Uint8Array): ChunkMesh {
+export function buildWaterMesh(world: World, water: Uint8Array, light: RGBLight): ChunkMesh {
   return meshWaterRange(world, water, light, 0, 0, 0, world.sizeX, world.sizeY, world.sizeZ);
 }
 
@@ -127,7 +137,7 @@ export function buildWaterMesh(world: World, water: Uint8Array, light: Uint8Arra
 export function buildWaterChunkMesh(
   world: World,
   water: Uint8Array,
-  light: Uint8Array,
+  light: RGBLight,
   cx: number,
   cy: number,
   cz: number,

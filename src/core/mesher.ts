@@ -13,18 +13,20 @@
  * is split along the diagonal joining its brighter corners to avoid an interpolation
  * seam. With no occluders this reduces to the old flat per-face shade.
  *
- * Finally, faces are LIGHT-aware: each face is dimmed by the propagated light level
- * (`max(blockLight, skyLight)`) sampled at the open cell it looks into, via
- * `lightFactor`. The light field is passed in (computed by `core/light.ts`); when it
- * is omitted the factor is 1 everywhere, so the mesh is byte-identical to the
- * unlit one — light is a strict extension of the shade × AO colour, exactly as AO
- * extended the flat shade. The final vertex colour is `texel × faceShade × AO × light`.
+ * Finally, faces are LIGHT-aware in COLOUR: each face is dimmed per channel by the
+ * propagated RGB light (`computeLightRGB`) sampled at the open cell it looks into, via
+ * `lightFactor`. The light field is passed in (computed by `core/light.ts`); when it is
+ * omitted every channel's factor is 1, so the mesh is byte-identical to the unlit one —
+ * and a grey (uncoloured) field reproduces the old greyscale colour exactly. Light is a
+ * strict extension of the shade × AO colour, exactly as AO extended the flat shade. The
+ * final per-channel vertex colour is `texel × faceShade × AO × light_c`; the greedy merge
+ * key includes the RGB triple, so faces only merge when all three channels match.
  */
 
 import type { World } from "./world";
 import { Block, isOpaque, type BlockId } from "./blocks";
 import { tileIndexFor } from "./atlas";
-import { MAX_LIGHT } from "./light";
+import { MAX_LIGHT, type RGBLight } from "./light";
 
 /**
  * Whether a block contributes geometry to the OPAQUE terrain mesh. Air is empty;
@@ -39,7 +41,7 @@ export function rendersInTerrain(id: BlockId): boolean {
 export interface ChunkMesh {
   readonly positions: Float32Array; // xyz per vertex
   readonly normals: Float32Array; // xyz per vertex
-  readonly colors: Float32Array; // rgb per vertex — per-face shade × per-vertex AO (greyscale)
+  readonly colors: Float32Array; // rgb per vertex — per-face shade × per-vertex AO × per-channel light
   readonly uvs: Float32Array; // st per vertex — TILE-LOCAL [0,1] (a unit quad covers one tile)
   readonly layers: Float32Array; // tile index per vertex — selects the tile (= texture-array layer)
   readonly indices: Uint32Array; // two triangles per quad
@@ -200,21 +202,22 @@ export function lightFactor(level: number): number {
 }
 
 /**
- * Light level at cell (x,y,z) for face shading, `0..MAX_LIGHT`. A face is dimmed by
- * the light in the OPEN cell it looks into. When no light field is supplied, or the
- * cell is out of bounds (the world edge reads as open sky), it is full light — so the
- * factor is `1` and the colour is unchanged.
+ * RGB light levels at cell (x,y,z) for face shading, each `0..MAX_LIGHT`. A face is
+ * dimmed by the light in the OPEN cell it looks into. When no light field is supplied,
+ * or the cell is out of bounds (the world edge reads as open sky), every channel is full
+ * light — so each factor is `1` and the colour is unchanged (the unlit/uncoloured path).
  */
 function lightAt(
-  light: Uint8Array | undefined,
+  light: RGBLight | undefined,
   world: World,
   x: number,
   y: number,
   z: number,
-): number {
-  if (!light) return MAX_LIGHT;
-  if (!world.inBounds(x, y, z)) return MAX_LIGHT;
-  return light[world.index(x, y, z)];
+): [number, number, number] {
+  if (!light) return [MAX_LIGHT, MAX_LIGHT, MAX_LIGHT];
+  if (!world.inBounds(x, y, z)) return [MAX_LIGHT, MAX_LIGHT, MAX_LIGHT];
+  const i = world.index(x, y, z);
+  return [light.r[i], light.g[i], light.b[i]];
 }
 
 /**
@@ -271,7 +274,7 @@ function meshRange(
   x1: number,
   y1: number,
   z1: number,
-  light?: Uint8Array,
+  light?: RGBLight,
 ): ChunkMesh {
   const positions: number[] = [];
   const normals: number[] = [];
@@ -292,23 +295,27 @@ function meshRange(
           const f = FACES[fi];
           const layer = tileIndexFor(id, fi);
           const baseVertex = positions.length / 3;
-          // Light is sampled once per face, at the open cell the face looks into, and
-          // dims all four vertices equally (AO still varies per-vertex below).
-          const lf = lightFactor(lightAt(light, world, x + f.normal[0], y + f.normal[1], z + f.normal[2])); // prettier-ignore
+          // Light is sampled once per face (RGB), at the open cell the face looks into,
+          // and dims all four vertices equally per channel (AO still varies per-vertex).
+          const [lr, lg, lb] = lightAt(light, world, x + f.normal[0], y + f.normal[1], z + f.normal[2]); // prettier-ignore
+          const lfR = lightFactor(lr);
+          const lfG = lightFactor(lg);
+          const lfB = lightFactor(lb);
 
           const levels: number[] = [];
           for (let k = 0; k < 4; k++) {
             const c = f.corners[k];
             positions.push(x + c[0], y + c[1], z + c[2]);
             normals.push(f.normal[0], f.normal[1], f.normal[2]);
-            // Vertex colour = the block's atlas texel × this shade. The shade is the
-            // face's flat directional shade modulated by per-vertex ambient occlusion
-            // (so an unoccluded vertex keeps the old per-face value at AO level 3) and
-            // by the face's light factor (1 when fully lit, so still unchanged).
+            // Vertex colour = the block's atlas texel × this shade, PER CHANNEL. The base
+            // shade is the face's flat directional shade modulated by per-vertex ambient
+            // occlusion (an unoccluded vertex keeps the old per-face value at AO level 3),
+            // then each channel is dimmed by that channel's light factor (1 when fully
+            // lit, so an uncoloured/full field is byte-identical to the old grey colour).
             const level = cornerAO(world, x, y, z, f, c);
             levels.push(level);
-            const shade = f.shade * aoFactor(level) * lf;
-            colors.push(shade, shade, shade);
+            const base = f.shade * aoFactor(level);
+            colors.push(base * lfR, base * lfG, base * lfB);
             // Tile-local UV: the 4 corners map straight onto the unit tile [0,1]²;
             // the tile is chosen per-vertex by `layer`. (A greedy quad would scale s,t.)
             const [s, t] = FACE_UV[k];
@@ -357,7 +364,7 @@ function meshRange(
 }
 
 /** Mesh the whole world in one geometry (fine up to ~100³; larger worlds chunk). */
-export function buildMesh(world: World, light?: Uint8Array): ChunkMesh {
+export function buildMesh(world: World, light?: RGBLight): ChunkMesh {
   return meshRange(world, 0, 0, 0, world.sizeX, world.sizeY, world.sizeZ, light);
 }
 
@@ -394,7 +401,7 @@ export function buildChunkMesh(
   cy: number,
   cz: number,
   chunkSize: number = CHUNK_SIZE,
-  light?: Uint8Array,
+  light?: RGBLight,
 ): ChunkMesh {
   const x0 = cx * chunkSize;
   const y0 = cy * chunkSize;
@@ -435,7 +442,7 @@ function meshRangeGreedy(
   x1: number,
   y1: number,
   z1: number,
-  light?: Uint8Array,
+  light?: RGBLight,
 ): ChunkMesh {
   const positions: number[] = [];
   const normals: number[] = [];
@@ -468,11 +475,13 @@ function meshRangeGreedy(
       h: number,
       levels: number[],
       layer: number,
-      lvl: number,
+      lvl: [number, number, number],
     ): void => {
       const sExtent = sAxis === u ? w : h;
       const tExtent = sAxis === u ? h : w;
-      const lf = lightFactor(lvl);
+      const lfR = lightFactor(lvl[0]);
+      const lfG = lightFactor(lvl[1]);
+      const lfB = lightFactor(lvl[2]);
       const base = positions.length / 3;
       for (let k = 0; k < 4; k++) {
         const c = f.corners[k];
@@ -482,8 +491,8 @@ function meshRangeGreedy(
         p[v] = B[v] + (c[v] ? h : 0);
         positions.push(p[0], p[1], p[2]);
         normals.push(f.normal[0], f.normal[1], f.normal[2]);
-        const shade = f.shade * aoFactor(levels[k]) * lf;
-        colors.push(shade, shade, shade);
+        const shadeBase = f.shade * aoFactor(levels[k]);
+        colors.push(shadeBase * lfR, shadeBase * lfG, shadeBase * lfB);
         uvs.push(FACE_UV[k][0] * sExtent, FACE_UV[k][1] * tExtent);
         layers.push(layer);
       }
@@ -502,7 +511,9 @@ function meshRangeGreedy(
       const key: (string | null)[] = new Array(U * V).fill(null);
       const keyLevel: number[] = new Array(U * V);
       const keyLayer: number[] = new Array(U * V);
-      const keyLight: number[] = new Array(U * V);
+      const keyLightR: number[] = new Array(U * V);
+      const keyLightG: number[] = new Array(U * V);
+      const keyLightB: number[] = new Array(U * V);
       for (let sv = 0; sv < V; sv++) {
         for (let su = 0; su < U; su++) {
           const cell = [0, 0, 0];
@@ -516,9 +527,10 @@ function meshRangeGreedy(
           for (let k = 0; k < 4; k++)
             levels[k] = cornerAO(world, cell[0], cell[1], cell[2], f, f.corners[k]);
           const layer = tileIndexFor(id, d);
-          // Face light at the open cell — uniform across the face, so it joins the merge
-          // key: faces at different light levels never merge (else a merged quad would
-          // average lighting the GPU can only interpolate, just like an AO seam).
+          // Face light at the open cell (RGB) — uniform across the face, so all three
+          // channels join the merge key: faces at different light (any channel) never
+          // merge (else a merged quad would average lighting the GPU can only
+          // interpolate, just like an AO seam).
           const lvl = lightAt(
             light,
             world,
@@ -528,10 +540,12 @@ function meshRangeGreedy(
           );
           if (levels[0] === levels[1] && levels[1] === levels[2] && levels[2] === levels[3]) {
             const idx = su + U * sv;
-            key[idx] = `${layer},${levels[0]},${lvl}`;
+            key[idx] = `${layer},${levels[0]},${lvl[0]},${lvl[1]},${lvl[2]}`;
             keyLevel[idx] = levels[0];
             keyLayer[idx] = layer;
-            keyLight[idx] = lvl;
+            keyLightR[idx] = lvl[0];
+            keyLightG[idx] = lvl[1];
+            keyLightB[idx] = lvl[2];
           } else {
             emit(cell, 1, 1, levels, layer, lvl);
           }
@@ -560,7 +574,11 @@ function meshRangeGreedy(
           B[u] = lo[u] + su;
           B[v] = lo[v] + sv;
           const L = keyLevel[idx];
-          emit(B, w, h, [L, L, L, L], keyLayer[idx], keyLight[idx]);
+          emit(B, w, h, [L, L, L, L], keyLayer[idx], [
+            keyLightR[idx],
+            keyLightG[idx],
+            keyLightB[idx],
+          ]);
         }
       }
     }
@@ -578,7 +596,7 @@ function meshRangeGreedy(
 }
 
 /** Greedy-mesh the whole world in one geometry (the merged counterpart of `buildMesh`). */
-export function buildGreedyMesh(world: World, light?: Uint8Array): ChunkMesh {
+export function buildGreedyMesh(world: World, light?: RGBLight): ChunkMesh {
   return meshRangeGreedy(world, 0, 0, 0, world.sizeX, world.sizeY, world.sizeZ, light);
 }
 
@@ -593,7 +611,7 @@ export function buildGreedyChunkMesh(
   cy: number,
   cz: number,
   chunkSize: number = CHUNK_SIZE,
-  light?: Uint8Array,
+  light?: RGBLight,
 ): ChunkMesh {
   const x0 = cx * chunkSize;
   const y0 = cy * chunkSize;

@@ -150,7 +150,7 @@ a zero normal.
 interface ChunkMesh {
   positions: Float32Array;   // xyz per vertex
   normals: Float32Array;     // xyz per vertex
-  colors: Float32Array;      // rgb per vertex — per-face shade × per-vertex AO × per-face light (greyscale)
+  colors: Float32Array;      // rgb per vertex — per-face shade × per-vertex AO × per-channel face light
   uvs: Float32Array;         // st per vertex — TILE-LOCAL [0,1] (a unit quad covers one tile)
   layers: Float32Array;      // tile index per vertex — selects the tile (= texture-array layer)
   indices: Uint32Array;      // 6 per quad (two triangles)
@@ -175,10 +175,11 @@ buildGreedyChunkMesh(world: World, cx, cy, cz, chunkSize?, light?): ChunkMesh   
 
 A face is emitted iff the neighbour **across it** is not opaque (air, glass, leaves, water,
 or out-of-bounds reveal it). Buffer layout per quad: 4 vertices, 6 indices. Each face is
-shaded by a fixed ambient factor (top `1.0` … bottom `0.5`) × ambient occlusion × the light
-level (`lightFactor`, `LIGHT_MIN`…`1`) sampled from the optional `light` field at the open cell
-the face looks into. When `light` is omitted the factor is `1`, so the mesh is byte-identical to
-the unlit one — light is a strict extension. All multiplied into the vertex colours.
+shaded by a fixed ambient factor (top `1.0` … bottom `0.5`) × ambient occlusion × the **per-channel**
+light factor (`lightFactor`, `LIGHT_MIN`…`1`) sampled from the optional RGB `light` field
+(`computeLightRGB`) at the open cell the face looks into. When `light` is omitted every channel's
+factor is `1`, so the mesh is byte-identical to the unlit one, and a grey field reproduces the old
+greyscale colour — light is a strict extension. All multiplied into the per-channel vertex colours.
 
 `buildChunkMesh` iterates only one chunk's cells (clamped to the world edge for the last,
 partial chunk) but culls against the full world, so the chunks tile the world and reassemble
@@ -190,8 +191,8 @@ drawn separately by `waterMesh.ts` as a translucent pass — but it stays non-op
 reveals the solid faces behind it (you see the lakebed).
 
 `buildGreedyMesh` / `buildGreedyChunkMesh` merge coplanar, adjacent faces that share a tile
-(layer) **and** are uniformly lit (all four AO corners equal **and** the same face light level)
-into maximal rectangles, so a
+(layer) **and** are uniformly lit (all four AO corners equal **and** the same RGB face light on all
+three channels) into maximal rectangles, so a
 flat region becomes a few big quads (≈55% fewer quads on the default terrain). Faces whose AO
 varies are emitted 1×1 with their exact per-corner AO, so no shading detail is lost. The
 merged quad's tile-local UVs run `0..w`/`0..h` so the tile **repeats** once per cell (the
@@ -243,14 +244,9 @@ computeSkyLight(world: World): Uint8Array     // per-voxel skylight  0..15, in w
 computeLight(world: World): Uint8Array        // per-voxel max(block, sky) — the field the mesher uses
 
 // Coloured (RGB) light — a strict extension; { r, g, b } each a Uint8Array like above.
+// computeLightRGB is the field the mesher dims faces by.
 computeBlockLightRGB(world: World): RGBLight  // per-channel block-light, seeded round(emission·tint)
 computeLightRGB(world: World): RGBLight        // per-channel max(blockRGB, white skylight)
-
-// Incremental updates after a single edit at (x,y,z) (world already mutated). Mutate the
-// field(s) in place and return the flat indices whose value changed.
-updateBlockLight(world, light, x, y, z): number[]
-updateSkyLight(world, light, x, y, z): number[]
-updateLight(world, blockLight, skyLight, combined, x, y, z): number[]   // updates all three; returns changed combined cells
 ```
 
 **Block-light.** Every emitter (`emissionOf > 0`) is seeded with its emission, then a
@@ -270,20 +266,14 @@ the brighter of the sky or a nearby emitter reaches it. This is the field the me
 **Coloured (RGB).** Emitters carry an optional `emissionColor` tint (white if unset).
 `computeBlockLightRGB` floods the three channels independently, seeding channel `c` at
 `round(emission · tint[c])` with the same BFS; `computeLightRGB` is the per-channel
-`max(blockRGB, skyLight)` with white (uncoloured) skylight. A strict extension: a white emitter
-seeds every channel at its full emission, so each channel is byte-identical to scalar
-`computeBlockLight` (Glowstone's red tint is `1.0`, so its red channel reproduces the scalar field
-exactly). The scalar functions are unchanged; the renderer keeps using them until coloured meshing
-lands. Pinned by a per-channel independent relaxation, the red-channel reduction, a per-channel-max
-census, an `r ≥ g ≥ b` warm-ordering invariant, and a closed-form per-channel decay golden.
-
-**Incremental.** After a single edit, `updateBlockLight` / `updateSkyLight` / `updateLight` mutate
-the existing field(s) in place instead of recomputing the world, using the classic two-pass
-scheme (a removal flood clears light that traced back to what darkened, then an add flood
-re-propagates from the borders + new sources; skylight additionally re-seeds the open-sky column
-below the edit). They return the exact set of changed cells, so the renderer remeshes only the
-affected chunks. Pinned by the **differential** oracle: incremental == from-scratch after every
-edit of a random edit-sequence.
+`max(blockRGB, skyLight)` with white (uncoloured) skylight. **This is the field the mesher and
+water pass dim faces by** (per channel). A strict extension: a white emitter seeds every channel at
+its full emission, so each channel is byte-identical to scalar `computeBlockLight` (Glowstone's red
+tint is `1.0`, so its red channel reproduces the scalar field exactly), and a grey field reproduces
+the old greyscale mesh. Pinned by a per-channel independent relaxation, the red-channel reduction, a
+per-channel-max census, an `r ≥ g ≥ b` warm-ordering invariant, and a closed-form per-channel decay
+golden. (`ChunkedTerrain` recomputes this field per edit and diffs it — ~6 ms; see #86 for why an
+incremental updater wasn't kept.)
 
 > Invariants (both): levels stay in `[0, 15]`; opaque cells are `0`; a lit cell that isn't its
 > own source has a neighbour brighter by ≥ 1 (light never appears from nowhere); an opaque
@@ -324,8 +314,9 @@ isWaterFaceVisible(world, water, x, y, z, fi): boolean
 The translucent counterpart of the terrain mesher. A water cell (`water[c] > 0`) emits a full
 unit cube; a face shows only where the neighbour across it is open air (no water there and not
 opaque), so water-vs-water and buried-against-rock faces are culled. Faces reuse the terrain
-mesher's winding-verified `FACES`/`FACE_UV` and the water tile, shaded `faceShade × lightFactor`
-(no AO). Drawn in `buildWaterMaterial()` (the terrain material, alpha-blended, `depthWrite` off).
+mesher's winding-verified `FACES`/`FACE_UV` and the water tile, shaded per channel
+`faceShade × lightFactor(light_c)` (RGB, no AO). Drawn in `buildWaterMaterial()` (the terrain
+material, alpha-blended, `depthWrite` off).
 
 > Pinned by a **where-census** (faces appear exactly where a watered cell faces air, re-derived
 > from the field), a **shade census**, **outward winding**, and the per-chunk union census — every
@@ -478,16 +469,23 @@ tile. Render-shell wiring, verified by the smoke test (no unit oracle).
 
 ```ts
 class ChunkedTerrain {
-  constructor(world: World, material: THREE.Material, chunkSize?: number);
-  readonly group: THREE.Group; // add to the scene; one Mesh per non-empty chunk
+  constructor(
+    world: World,
+    material: THREE.Material,
+    waterMaterial: THREE.Material,
+    chunkSize?: number,
+  );
+  readonly group: THREE.Group; // opaque terrain; add to the scene
+  readonly waterGroup: THREE.Group; // translucent water; drawn in its own alpha pass
   rebuildAround(x, y, z): void; // remesh only the chunks an edit at (x,y,z) touches
 }
 ```
 
-Renders the world as a grid of per-chunk meshes (thin Three.js wiring over the core's
-`buildChunkMesh` / `chunksAffectedByEdit`). Verified by the smoke test for in-browser render,
-and by a unit oracle that its assembled geometry — and its state after incremental
-`rebuildAround` edits — equals an independent whole-world `buildMesh`.
+Renders the world as a grid of per-chunk meshes — opaque terrain + a translucent water pass — over
+the core's `buildGreedyChunkMesh` / `buildWaterChunkMesh` / `chunksAffectedByEdit`. Holds the RGB
+light and water fields (both recomputed and diffed per edit) so `rebuildAround` remeshes only the
+chunks whose geometry, light, or water changed. Verified by the smoke test for in-browser render,
+and by a unit oracle that its assembled geometry equals an independent whole-world `buildMesh`.
 
 > Invariant: the union of chunk geometries equals the whole-world mesh, and incremental edits
 > keep it that way (no stale seams).

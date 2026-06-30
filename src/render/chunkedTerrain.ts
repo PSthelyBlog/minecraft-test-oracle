@@ -13,7 +13,7 @@
 import { Group, Mesh, type Material } from "three";
 import type { World } from "../core/world";
 import { buildGreedyChunkMesh, chunkDims, chunksAffectedByEdit, CHUNK_SIZE } from "../core/mesher";
-import { computeBlockLight, computeSkyLight, updateLight } from "../core/light";
+import { computeLightRGB, type RGBLight } from "../core/light";
 import { computeWater } from "../core/water";
 import { buildWaterChunkMesh } from "../core/waterMesh";
 import { geometryFromMesh } from "./chunkGeometry";
@@ -27,12 +27,11 @@ export class ChunkedTerrain {
   private readonly dims: { nx: number; ny: number; nz: number };
   private readonly meshes: (Mesh | null)[]; // one terrain slot per chunk; null = empty
   private readonly waterMeshes: (Mesh | null)[]; // one water slot per chunk; null = no water
-  // Block, sky, combined light (maintained incrementally) + the water level field
-  // (recomputed and diffed per edit). The mesher dims faces by `light`; the water mesh
+  // Combined RGB light + the water presence field, both recomputed and diffed per edit
+  // (both are sub-10 ms on this world, so the per-edit recompute is imperceptible — see
+  // the incremental discussion in #86). The mesher dims faces by `light`; the water mesh
   // is built from `water` and shaded by `light`.
-  private readonly blockLight: Uint8Array;
-  private readonly skyLight: Uint8Array;
-  private readonly light: Uint8Array;
+  private light: RGBLight;
   private water: Uint8Array;
 
   constructor(
@@ -45,11 +44,7 @@ export class ChunkedTerrain {
     const n = this.dims.nx * this.dims.ny * this.dims.nz;
     this.meshes = new Array(n).fill(null);
     this.waterMeshes = new Array(n).fill(null);
-    this.blockLight = computeBlockLight(world);
-    this.skyLight = computeSkyLight(world);
-    this.light = new Uint8Array(world.volume);
-    for (let i = 0; i < this.light.length; i++)
-      this.light[i] = Math.max(this.blockLight[i], this.skyLight[i]);
+    this.light = computeLightRGB(world);
     this.water = computeWater(world);
     for (let cy = 0; cy < this.dims.ny; cy++)
       for (let cz = 0; cz < this.dims.nz; cz++)
@@ -105,23 +100,23 @@ export class ChunkedTerrain {
 
   /**
    * Rebuild the chunks a block edit at (x, y, z) can have changed — in geometry,
-   * lighting, OR water. Light is updated incrementally (`updateLight`); water is
-   * recomputed and diffed against the previous field (incremental flood update lands in
-   * #86). A chunk must remesh if its geometry, the light at a face's open cell, or its
-   * water changed — for each such
+   * lighting, OR water. The RGB light and water fields are each recomputed and diffed
+   * against the previous field (both sub-10 ms here). A chunk must remesh if its
+   * geometry, the light at a face's open cell, or its water changed — for each such
    * cell that is exactly `chunksAffectedByEdit(cell)`, so we union it over the edit and
    * every changed light/water cell, then rebuild both meshes there.
    */
   rebuildAround(x: number, y: number, z: number): void {
-    const lightChanged = updateLight(
-      this.world,
-      this.blockLight,
-      this.skyLight,
-      this.light,
-      x,
-      y,
-      z,
-    );
+    const nextLight = computeLightRGB(this.world);
+    const lightChanged: number[] = [];
+    for (let i = 0; i < this.world.volume; i++)
+      if (
+        nextLight.r[i] !== this.light.r[i] ||
+        nextLight.g[i] !== this.light.g[i] ||
+        nextLight.b[i] !== this.light.b[i]
+      )
+        lightChanged.push(i);
+    this.light = nextLight;
 
     const next = computeWater(this.world);
     const waterChanged: number[] = [];

@@ -3,7 +3,7 @@ import fc from "fast-check";
 import { World } from "./world";
 import { Block, isOpaque } from "./blocks";
 import { computeWater } from "./water";
-import { computeLight, MAX_LIGHT } from "./light";
+import { computeLightRGB, MAX_LIGHT } from "./light";
 import { chunkDims, type ChunkMesh } from "./mesher";
 import { buildWaterMesh, buildWaterChunkMesh } from "./waterMesh";
 
@@ -93,7 +93,7 @@ describe("water mesh oracle", () => {
       fc.property(randomCells, (cells) => {
         const w = fill(cells);
         const water = computeWater(w);
-        const m = buildWaterMesh(w, water, computeLight(w));
+        const m = buildWaterMesh(w, water, computeLightRGB(w));
         expect(emittedFaces(m).sort()).toEqual(expectedWaterFaces(w, water).sort());
       }),
       { numRuns: 250 },
@@ -107,7 +107,7 @@ describe("water mesh oracle", () => {
       fc.property(randomCells, fc.constantFrom(2, 3, 4), (cells, chunkSize) => {
         const w = fill(cells);
         const water = computeWater(w);
-        const light = computeLight(w);
+        const light = computeLightRGB(w);
         const { nx, ny, nz } = chunkDims(w, chunkSize);
         const keys: string[] = [];
         for (let cy = 0; cy < ny; cy++)
@@ -122,14 +122,14 @@ describe("water mesh oracle", () => {
     );
   });
 
-  // SHADE CENSUS: every water vertex colour is faceShade × light at the open cell the
-  // face looks into (greyscale), re-derived independently. Pins the lighting fold.
-  test("census: every water face is shaded faceShade × open-cell light", () => {
+  // SHADE CENSUS: every water vertex colour is faceShade × that channel's light at the
+  // open cell the face looks into, per channel, re-derived independently. Pins the fold.
+  test("census: every water face is shaded faceShade × open-cell RGB light", () => {
     fc.assert(
       fc.property(randomCells, (cells) => {
         const w = fill(cells);
         const water = computeWater(w);
-        const light = computeLight(w);
+        const light = computeLightRGB(w);
         const m = buildWaterMesh(w, water, light);
         for (let f = 0; f < m.faceCount; f++) {
           const no = f * 12;
@@ -138,15 +138,15 @@ describe("water mesh oracle", () => {
             nz = m.normals[no + 2];
           const d = faceIndexFromNormal(nx, ny, nz);
           const [cx, cy, cz] = owningCell(m, f);
-          const L = w.inBounds(cx + nx, cy + ny, cz + nz)
-            ? light[w.index(cx + nx, cy + ny, cz + nz)]
-            : MAX_LIGHT;
-          const expected = FACE_SHADE[d] * lightBrightness(L);
+          const inb = w.inBounds(cx + nx, cy + ny, cz + nz);
+          const idx = inb ? w.index(cx + nx, cy + ny, cz + nz) : -1;
+          const chan = [light.r, light.g, light.b];
           for (let k = 0; k < 4; k++) {
             const p = (f * 4 + k) * 3;
-            expect(m.colors[p]).toBeCloseTo(expected, 6);
-            expect(m.colors[p]).toBe(m.colors[p + 1]); // greyscale
-            expect(m.colors[p + 1]).toBe(m.colors[p + 2]);
+            for (let c = 0; c < 3; c++) {
+              const L = inb ? chan[c][idx] : MAX_LIGHT;
+              expect(m.colors[p + c]).toBeCloseTo(FACE_SHADE[d] * lightBrightness(L), 6);
+            }
           }
         }
       }),
@@ -160,7 +160,7 @@ describe("water mesh oracle", () => {
     fc.assert(
       fc.property(randomCells, (cells) => {
         const w = fill(cells);
-        const m = buildWaterMesh(w, computeWater(w), computeLight(w));
+        const m = buildWaterMesh(w, computeWater(w), computeLightRGB(w));
         for (let f = 0; f < m.faceCount; f++) {
           const no = f * 12;
           const normal = [m.normals[no], m.normals[no + 1], m.normals[no + 2]];
@@ -197,13 +197,13 @@ describe("water mesh oracle", () => {
     const buried = new World(3, 3, 3);
     buried.data.fill(Block.Stone);
     buried.set(1, 1, 1, Block.Water); // surrounded by rock on all six sides
-    expect(buildWaterMesh(buried, computeWater(buried), computeLight(buried)).faceCount).toBe(0);
+    expect(buildWaterMesh(buried, computeWater(buried), computeLightRGB(buried)).faceCount).toBe(0);
 
     const cup = new World(3, 3, 3);
     cup.data.fill(Block.Stone);
     cup.set(1, 1, 1, Block.Water); // water in the cup
     cup.set(1, 2, 1, Block.Air); // open top above it
-    expect(buildWaterMesh(cup, computeWater(cup), computeLight(cup)).faceCount).toBe(1);
+    expect(buildWaterMesh(cup, computeWater(cup), computeLightRGB(cup)).faceCount).toBe(1);
   });
 
   // STRUCTURAL: 4 verts / 2 uv / 1 layer / 6 indices per quad, unit-axis normals.
@@ -211,7 +211,7 @@ describe("water mesh oracle", () => {
     const w = new World(4, 4, 4);
     w.set(1, 1, 1, Block.Water);
     w.set(2, 1, 1, Block.Water);
-    const m = buildWaterMesh(w, computeWater(w), computeLight(w));
+    const m = buildWaterMesh(w, computeWater(w), computeLightRGB(w));
     expect(m.positions.length).toBe(m.faceCount * 12);
     expect(m.colors.length).toBe(m.faceCount * 12);
     expect(m.uvs.length).toBe(m.faceCount * 8);

@@ -13,11 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tint (Glowstone now glows warm); `computeBlockLightRGB` floods the three channels
   independently, seeding each at `round(emission · tint)`, and `computeLightRGB` combines
   coloured block-light with white skylight as a per-channel max. A strict extension — a
-  white emitter reproduces the scalar field on every channel, and the scalar
-  `computeBlockLight`/`computeLight` are unchanged (the renderer still uses them until the
-  meshing pass lands). Pinned by a per-channel independent relaxation, a red-channel
-  byte-for-byte reduction to scalar block-light, a per-channel-max census, an `r ≥ g ≥ b`
-  warm-ordering invariant, and a closed-form per-channel decay golden. (#80)
+  white emitter reproduces the scalar field on every channel. Pinned by a per-channel
+  independent relaxation, a red-channel byte-for-byte reduction to scalar block-light, a
+  per-channel-max census, an `r ≥ g ≥ b` warm-ordering invariant, and a closed-form
+  per-channel decay golden. (#80)
+- **Coloured-light meshing**: the terrain and water meshers now fold the RGB light into
+  per-channel vertex colours (`colour_c = shade × AO × lightFactor(light_c)`) and key the
+  greedy merge on the RGB triple, so a placed Glowstone casts a visibly warm glow. A strict
+  extension: no light field is byte-identical to unlit, and a grey field reproduces the old
+  greyscale mesh. Pinned by a per-channel shade census (naive + greedy) and the full-light
+  reduction. `ChunkedTerrain` now recomputes `computeLightRGB` per edit (~6 ms) and diffs it
+  for changed cells. (#81)
+
+### Removed
+
+- The incremental light updaters (`updateBlockLight` / `updateSkyLight` / `updateLight`,
+  from #66) — superseded by the per-edit `computeLightRGB` recompute, which is fast enough
+  (~6 ms) and gradientless flood removal wouldn't beat (same reasoning as the closed #86).
 
 ### Changed
 

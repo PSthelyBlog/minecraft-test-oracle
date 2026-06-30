@@ -51,7 +51,6 @@ function floodLight(
   qx: number[],
   qy: number[],
   qz: number[],
-  onWrite?: (index: number, oldValue: number) => void,
 ): void {
   for (let head = 0; head < qx.length; head++) {
     const x = qx[head];
@@ -66,7 +65,6 @@ function floodLight(
       if (isOpaque(world.get(nx, ny, nz))) continue; // light cannot enter an opaque cell
       const ni = world.index(nx, ny, nz);
       if (light[ni] < level - 1) {
-        if (onWrite) onWrite(ni, light[ni]);
         light[ni] = level - 1;
         qx.push(nx);
         qy.push(ny);
@@ -110,9 +108,9 @@ export function computeBlockLight(world: World): Uint8Array {
 
 /**
  * Per-voxel combined light (`0..15`): the brighter of block-light and skylight at
- * each cell, `max(computeBlockLight, computeSkyLight)`. This is the field the mesher
- * dims faces by — a cell counts as lit if EITHER the sky or a nearby emitter reaches
- * it. (Recomputed whole on each edit until incremental updates land in #66.)
+ * each cell, `max(computeBlockLight, computeSkyLight)`. The scalar counterpart of
+ * `computeLightRGB` (the renderer uses the RGB field; this stays as the scalar
+ * reference the coloured field reduces to).
  */
 export function computeLight(world: World): Uint8Array {
   const block = computeBlockLight(world);
@@ -231,220 +229,4 @@ export function computeLightRGB(world: World): RGBLight {
     b[i] = block.b[i] > sky[i] ? block.b[i] : sky[i];
   }
   return { r, g, b };
-}
-
-// ---------------------------------------------------------------------------
-// Incremental updates — after a single block edit, mutate the existing light
-// fields in place instead of recomputing the whole world, and report exactly which
-// cells changed (so the renderer can remesh only the affected chunks).
-//
-// Both fields use the classic two-pass scheme: a REMOVAL flood first clears every
-// cell whose light traced back to what the edit darkened (queuing brighter, still-
-// independent cells it bumps into as re-light sources), then an ADD flood (the same
-// `floodLight`) re-propagates from those border sources plus the edit's new sources.
-// The end result is identical to a from-scratch recompute — pinned by the headline
-// DIFFERENTIAL oracle (incremental == `computeBlockLight`/`computeSkyLight`/
-// `computeLight`) over random edit sequences.
-// ---------------------------------------------------------------------------
-
-/** Records each cell's value as it was BEFORE this update, so the changed set is exact. */
-type Origins = Map<number, number>;
-
-/** Cells whose field value differs from the recorded original — the exact changed set. */
-function changedCells(orig: Origins, field: Uint8Array): number[] {
-  const out: number[] = [];
-  for (const [i, was] of orig) if (field[i] !== was) out.push(i);
-  return out;
-}
-
-/**
- * Removal flood. Each seeded cell has already been cleared to 0 (with its old level
- * recorded in `rlvl` and its original captured in `orig`). For every lit neighbour
- * DIMMER than the cell it came from, that light depended on the removed cell → clear
- * and enqueue it; a neighbour at least as bright is an INDEPENDENT source → stash it
- * in the add-queue to re-light from. Mirrors `floodLight`'s traversal in reverse.
- */
-function removalPass(
-  world: World,
-  field: Uint8Array,
-  rqx: number[],
-  rqy: number[],
-  rqz: number[],
-  rlvl: number[],
-  aqx: number[],
-  aqy: number[],
-  aqz: number[],
-  orig: Origins,
-): void {
-  for (let head = 0; head < rqx.length; head++) {
-    const x = rqx[head];
-    const y = rqy[head];
-    const z = rqz[head];
-    const lvl = rlvl[head];
-    for (const [dx, dy, dz] of NEIGHBORS) {
-      const nx = x + dx;
-      const ny = y + dy;
-      const nz = z + dz;
-      if (!world.inBounds(nx, ny, nz)) continue;
-      const ni = world.index(nx, ny, nz);
-      const nl = field[ni];
-      if (nl === 0) continue; // already dark (or opaque) — nothing to remove or re-light
-      if (nl < lvl) {
-        if (!orig.has(ni)) orig.set(ni, nl);
-        field[ni] = 0;
-        rqx.push(nx);
-        rqy.push(ny);
-        rqz.push(nz);
-        rlvl.push(nl);
-      } else {
-        // at least as bright → its light does not depend on the removed cell; re-light from it
-        aqx.push(nx);
-        aqy.push(ny);
-        aqz.push(nz);
-      }
-    }
-  }
-}
-
-/** True iff every cell strictly above (x, y, z) in its column is non-opaque (open sky). */
-function columnOpenAbove(world: World, x: number, y: number, z: number): boolean {
-  for (let yy = y + 1; yy < world.sizeY; yy++) if (isOpaque(world.get(x, yy, z))) return false;
-  return true;
-}
-
-/**
- * Incrementally update block-light after the block at (x, y, z) has been changed in
- * `world`. Mutates `light` in place and returns the flat indices whose value changed.
- * Driven by the OLD value still in `light` plus the NEW block in `world`, so it needs
- * no record of the previous block id and handles brighten and darken symmetrically.
- */
-export function updateBlockLight(
-  world: World,
-  light: Uint8Array,
-  x: number,
-  y: number,
-  z: number,
-): number[] {
-  const orig: Origins = new Map();
-  const rqx: number[] = [x],
-    rqy: number[] = [y],
-    rqz: number[] = [z];
-  const i0 = world.index(x, y, z);
-  const rlvl: number[] = [light[i0]];
-  const aqx: number[] = [],
-    aqy: number[] = [],
-    aqz: number[] = [];
-  // Seed removal from the edited cell with its old level (the loop also re-lights any
-  // brighter neighbour, so a cell that just became transparent fills back in too).
-  orig.set(i0, light[i0]);
-  light[i0] = 0;
-  removalPass(world, light, rqx, rqy, rqz, rlvl, aqx, aqy, aqz, orig);
-
-  // Re-add the cell's own emission (an opaque emitter still radiates), then flood.
-  const e = emissionOf(world.get(x, y, z));
-  if (e > 0) {
-    light[i0] = e;
-    aqx.push(x);
-    aqy.push(y);
-    aqz.push(z);
-  }
-  floodLight(world, light, aqx, aqy, aqz, (i, was) => {
-    if (!orig.has(i)) orig.set(i, was);
-  });
-  return changedCells(orig, light);
-}
-
-/**
- * Incrementally update skylight after the block at (x, y, z) has been changed in
- * `world`. Same two-pass scheme as block-light, plus the column rule: skylight's
- * sources are the open-sky columns, so an opacity change re-seeds the column BELOW the
- * edit — making it opaque removes the full-strength sky seed from the shadowed column;
- * making it transparent (under open sky) re-seeds that column at full strength.
- */
-export function updateSkyLight(
-  world: World,
-  light: Uint8Array,
-  x: number,
-  y: number,
-  z: number,
-): number[] {
-  const orig: Origins = new Map();
-  const rqx: number[] = [x],
-    rqy: number[] = [y],
-    rqz: number[] = [z];
-  const i0 = world.index(x, y, z);
-  const rlvl: number[] = [light[i0]];
-  const aqx: number[] = [],
-    aqy: number[] = [],
-    aqz: number[] = [];
-  const openAbove = columnOpenAbove(world, x, y, z);
-  const nowOpaque = isOpaque(world.get(x, y, z));
-
-  orig.set(i0, light[i0]);
-  light[i0] = 0;
-  // If the edit now blocks an open column, the cells below lose their sky seed too.
-  if (nowOpaque && openAbove) {
-    for (let yy = y - 1; yy >= 0; yy--) {
-      if (isOpaque(world.get(x, yy, z))) break;
-      const ci = world.index(x, yy, z);
-      if (!orig.has(ci)) orig.set(ci, light[ci]);
-      rqx.push(x);
-      rqy.push(yy);
-      rqz.push(z);
-      rlvl.push(light[ci]);
-      light[ci] = 0;
-    }
-  }
-  removalPass(world, light, rqx, rqy, rqz, rlvl, aqx, aqy, aqz, orig);
-
-  // If the edited cell is now open to the sky, it and the open column below are full-
-  // strength sky sources; otherwise it only receives via the re-light borders above.
-  if (!nowOpaque && openAbove) {
-    if (!orig.has(i0)) orig.set(i0, light[i0]);
-    light[i0] = MAX_LIGHT;
-    aqx.push(x);
-    aqy.push(y);
-    aqz.push(z);
-    for (let yy = y - 1; yy >= 0; yy--) {
-      if (isOpaque(world.get(x, yy, z))) break;
-      const ci = world.index(x, yy, z);
-      if (!orig.has(ci)) orig.set(ci, light[ci]);
-      light[ci] = MAX_LIGHT;
-      aqx.push(x);
-      aqy.push(yy);
-      aqz.push(z);
-    }
-  }
-  floodLight(world, light, aqx, aqy, aqz, (i, was) => {
-    if (!orig.has(i)) orig.set(i, was);
-  });
-  return changedCells(orig, light);
-}
-
-/**
- * Incrementally update both light fields and the combined `max` field after the block
- * at (x, y, z) has changed in `world`. Mutates all three arrays in place and returns
- * the flat indices whose COMBINED light changed (what the renderer remeshes around).
- */
-export function updateLight(
-  world: World,
-  blockLight: Uint8Array,
-  skyLight: Uint8Array,
-  combined: Uint8Array,
-  x: number,
-  y: number,
-  z: number,
-): number[] {
-  const touched = new Set<number>();
-  for (const i of updateBlockLight(world, blockLight, x, y, z)) touched.add(i);
-  for (const i of updateSkyLight(world, skyLight, x, y, z)) touched.add(i);
-  const changed: number[] = [];
-  for (const i of touched) {
-    const v = blockLight[i] > skyLight[i] ? blockLight[i] : skyLight[i];
-    if (combined[i] !== v) {
-      combined[i] = v;
-      changed.push(i);
-    }
-  }
-  return changed;
 }
