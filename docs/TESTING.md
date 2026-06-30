@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 149 oracle tests once (Vitest)
+npm test            # run all 151 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -131,9 +131,9 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate       |
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)                   |
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
-| `water.ts`       |           ~86% | flow CA (fixpoint/relaxation/reachability); all 8 survivors equivalent (classes below)  |
+| `water.ts`       |           ~80% | flow CA + incremental `updateWater` (differential); all 29 survivors equiv (below)      |
 | `light.ts`       |           ~84% | block/sky/combined + incremental updates; all 30 survivors equivalent (classes below)   |
-| **overall**      |     **~94.0%** | 149 tests across 18 files                                                               |
+| **overall**      |     **~92.9%** | 151 tests across 18 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -306,20 +306,51 @@ orig.set(c, …)` → `true`/`false` on cells the update only ever touches once 
   length/overflow guards were _removed_, not documented: they were fully backstopped by DataView's
   bounds-checking and the coverage check, so no test could kill them — a redundant line, not an
   oracle gap.)
-- **`water.ts` survivors (8, all equivalent).** Water flow is the least fixpoint of a monotone
+- **`water.ts` survivors (29, all equivalent).** Water flow is the least fixpoint of a monotone
   CA, pinned by the **fixpoint** condition itself (`F(result) == result`), an **independent
   relaxation** (Gauss–Seidel == the BFS), a **reachability** invariant (every drop has an inflow
-  witness), a **damming** metamorphic, and floor/waterfall/terrain goldens. What survives is in
-  classes already seen, all output-preserving:
-  - _seed + queue loop bounds_ (`y/z/x < size` → `<=` ×3, and `head < qx.length` → `<=`): the
-    extra iteration reads one cell out of bounds (→ Air, not a `Water` source) or an `undefined`
-    queue slot (`inBounds(NaN)` is false), a no-op — the shared loop-bound class.
-  - _horizontal neighbour-offset signs_ (`x + dx` → `x − dx`, `z + dz` → `z − dz`): `HORIZONTAL`
-    lists each axis as both `+1` and `−1`, so flipping a sign visits the same four neighbours in a
-    different order → the same field (the `NEIGHBORS` symmetric-offset class).
-  - _the fall guard_ (`water[bi] < MAX_WATER` → `true` / `<=`): the cell below a water cell always
-    fills to `MAX_WATER`; the guard only avoids redundantly re-enqueuing a cell already at full,
-    so forcing it changes the queue work but not the field (the `<`/`<=` redundant-guard class).
+  witness), a **damming** metamorphic, floor/waterfall/terrain goldens, and — for the incremental
+  `updateWater` — the headline **differential** oracle (incremental == from-scratch `computeWater`
+  after every edit of random edit-sequences) plus a **changed-set census**. What survives is in
+  classes already seen, all output-preserving; the non-obvious ones were confirmed by watching the
+  whole suite stay green under the planted mutant:
+  - _seed + queue loop bounds_ (`computeWater`'s `y/z/x < size` → `<=` ×3; `floodWater`'s
+    `head < qx.length` → `<=`; `updateWater`'s removal `head < rqx.length` → `<=`): the extra
+    iteration reads one cell out of bounds (→ Air, not a `Water` source) or an `undefined` queue
+    slot (`inBounds(NaN)` is false), a no-op — the shared loop-bound class.
+  - _horizontal neighbour-offset signs_ (`x + dx` → `x − dx`, `z + dz` → `z − dz`, in both
+    `floodWater`'s spread and `removalPass`'s horizontal walk): `HORIZONTAL` lists each axis as both
+    `+1` and `−1`, so flipping a sign visits the same four neighbours in a different order → the same
+    field (the `NEIGHBORS` symmetric-offset class).
+  - _the raise guards_ (`floodWater`'s `water[bi] < MAX_WATER` → `true` / `<=` and
+    `water[ni] < spread` → `<=`): at equality the cell is rewritten to the value it already holds and
+    re-enqueued — extra queue work, identical field (the `<`/`<=` redundant-guard / re-enqueue class).
+  - _the `floodWater` fall guard_ (`level > 0 && …` relaxed to `true` / `level >= 0` / `||`): the
+    `level > 0` guard exists only so a since-cleared **add-pass** border (level 0) doesn't fall. But
+    fall fills the cell below to `MAX_WATER` regardless of the source level, and any border that the
+    flood later refills to `> 0` would fall the same `MAX_WATER` anyway — so a premature fall writes
+    the identical value; the dropped `inBounds` half is redundant with `canHold` (an out-of-bounds
+    index reads `undefined`, never `< MAX_WATER`). The whole-condition mutant that **also** drops
+    `canHold` is **not** equivalent (it floods solid cells) and is killed by the fixpoint oracle.
+  - _the `removalPass` directional guards_ (the below-branch `lvl > 0 && inBounds` and the
+    `water[bi] > 0` filter relaxed to `true` / `>= 0` / `||`): forcing them makes the removal clear
+    or visit **extra** cells — a dry cell (no field change), an out-of-bounds index (`undefined > 0`
+    is false, a no-op), or a cell on an air-opening edit that the **add flood corrects back to the
+    same fixpoint** (the remove-then-re-add idempotency class). The differential oracle confirms the
+    field is unchanged.
+  - _the below-source re-flood border_ (`border(x, y − 1, z)` → `border(x, y + 1, z)`): when the
+    cell below the one being cleared is a `Block.Water` source we queue it as a re-flood border, but
+    a source's own dependents (the cell it falls into, its spread neighbours) already border it via
+    the horizontal-independent and above rules when **they** are cleared, so this extra border is
+    redundant — queuing the cell above instead changes nothing.
+  - _the dry-skip and above-border relaxations_ (`removalPass`'s `nl === 0 ? continue` → never skip;
+    the above-cell border `inBounds && water > 0` → `true` / `>= 0` / `||`): they border or visit a
+    dry / out-of-bounds cell, which `floodWater` processes as a level-0 (or `undefined`) seed that
+    raises nothing — a no-op (the bordered-dry / OOB class).
+  - _the visited-once original capture_ (`removalPass`'s `if (!orig.has(i)) orig.set(i, …)` → `true`):
+    each cell is cleared at most once (once `0`, the `nl === 0` skip stops it being re-cleared), so it
+    is captured at most once and re-capturing "again" can't happen — identical to the light updater's
+    first-touch-guard class.
 - **`waterMesh.ts` survivor (1, equivalent) — the submerged-cell fill-height branch.** Partial-height
   water (#78) renders each cell's top at `h = (water directly above) ? 1 : level/MAX_WATER`, so only the
   topmost (surface) cell of a body is thinned and a submerged column has no internal step. The
