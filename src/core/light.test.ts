@@ -1,11 +1,13 @@
 import { describe, test, expect } from "vitest";
 import fc from "fast-check";
 import { World } from "./world";
-import { Block, isOpaque, emissionOf } from "./blocks";
+import { Block, isOpaque, emissionOf, emissionColorOf } from "./blocks";
 import {
   computeBlockLight,
   computeSkyLight,
   computeLight,
+  computeBlockLightRGB,
+  computeLightRGB,
   updateBlockLight,
   updateSkyLight,
   updateLight,
@@ -497,5 +499,125 @@ describe("incremental-light oracle", () => {
       }),
       { numRuns: 300 },
     );
+  });
+});
+
+/**
+ * INDEPENDENT per-channel relaxation: identical to `relaxLight`, but each cell's seed is
+ * `round(emission · emissionColor[c])` instead of the scalar emission. Re-derives one
+ * colour channel of the RGB block-light by a different mechanism than light.ts's BFS.
+ */
+function relaxChannel(w: World, c: number): Uint8Array {
+  const L = new Uint8Array(w.volume);
+  const seedOf = (id: number): number => Math.round(emissionOf(id) * emissionColorOf(id)[c]);
+  for (let y = 0; y < w.sizeY; y++)
+    for (let z = 0; z < w.sizeZ; z++)
+      for (let x = 0; x < w.sizeX; x++) L[w.index(x, y, z)] = seedOf(w.get(x, y, z));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let y = 0; y < w.sizeY; y++)
+      for (let z = 0; z < w.sizeZ; z++)
+        for (let x = 0; x < w.sizeX; x++) {
+          if (isOpaque(w.get(x, y, z))) continue;
+          let v = seedOf(w.get(x, y, z));
+          for (const [dx, dy, dz] of NB) {
+            if (!w.inBounds(x + dx, y + dy, z + dz)) continue;
+            const nl = L[w.index(x + dx, y + dy, z + dz)];
+            if (nl - 1 > v) v = nl - 1;
+          }
+          const i = w.index(x, y, z);
+          if (v > L[i]) {
+            L[i] = v;
+            changed = true;
+          }
+        }
+  }
+  return L;
+}
+
+describe("coloured-light oracle", () => {
+  // RE-DERIVATION (headline): each RGB channel equals an INDEPENDENT per-channel
+  // relaxation seeded at round(emission · tint[c]). A swapped channel, a wrong seed
+  // scale, or a per-channel flood bug disagrees with the relaxation.
+  test("re-derivation: each RGB channel equals an independent per-channel relaxation", () => {
+    fc.assert(
+      fc.property(randomCells, (cells) => {
+        const w = fill(cells);
+        const rgb = computeBlockLightRGB(w);
+        expect(Array.from(rgb.r)).toEqual(Array.from(relaxChannel(w, 0)));
+        expect(Array.from(rgb.g)).toEqual(Array.from(relaxChannel(w, 1)));
+        expect(Array.from(rgb.b)).toEqual(Array.from(relaxChannel(w, 2)));
+      }),
+      { numRuns: 250 },
+    );
+  });
+
+  // REDUCTION (strict-extension proof): Glowstone's tint has red = 1.0, so the RED
+  // channel seeds at round(15·1) = 15 = the scalar emission and floods identically — the
+  // red channel must be BYTE-IDENTICAL to scalar computeBlockLight on every world.
+  test("reduction: the red channel reproduces scalar block-light byte-for-byte", () => {
+    fc.assert(
+      fc.property(randomCells, (cells) => {
+        const w = fill(cells);
+        expect(Array.from(computeBlockLightRGB(w).r)).toEqual(Array.from(computeBlockLight(w)));
+      }),
+      { numRuns: 250 },
+    );
+  });
+
+  // CENSUS: computeLightRGB is the per-channel cell-wise max of coloured block-light and
+  // WHITE skylight (the scalar skylight applied to every channel) — re-derived independently.
+  test("census: computeLightRGB is the per-channel max of block-RGB and white skylight", () => {
+    fc.assert(
+      fc.property(randomCells, (cells) => {
+        const w = fill(cells);
+        const block = computeBlockLightRGB(w);
+        const sky = computeSkyLight(w);
+        const combined = computeLightRGB(w);
+        for (let i = 0; i < w.volume; i++) {
+          expect(combined.r[i]).toBe(Math.max(block.r[i], sky[i]));
+          expect(combined.g[i]).toBe(Math.max(block.g[i], sky[i]));
+          expect(combined.b[i]).toBe(Math.max(block.b[i], sky[i]));
+        }
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  // INVARIANT: Glowstone's warm tint is ordered red ≥ green ≥ blue (1.0 ≥ 0.85 ≥ 0.55),
+  // and the flood is monotone in the seed, so the channels stay ordered r ≥ g ≥ b at EVERY
+  // cell. A channel swap (e.g. green using the red tint) breaks the ordering.
+  test("invariant: a warm emitter's channels stay ordered r ≥ g ≥ b everywhere", () => {
+    fc.assert(
+      fc.property(randomCells, (cells) => {
+        const w = fill(cells);
+        const { r, g, b } = computeBlockLightRGB(w);
+        for (let i = 0; i < w.volume; i++) {
+          expect(r[i]).toBeGreaterThanOrEqual(g[i]);
+          expect(g[i]).toBeGreaterThanOrEqual(b[i]);
+        }
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  // GOLDEN / CLOSED FORM: a lone Glowstone in open air. Each channel decays by Manhattan
+  // distance from its own seed: red 15, green round(15·0.85)=13, blue round(15·0.55)=8.
+  // Pins the per-channel seed scale and the decay independently of the relaxation.
+  test("golden: a lone warm emitter decays per channel from its tinted seed", () => {
+    const w = new World(11, 11, 11);
+    const cx = 5;
+    w.set(cx, cx, cx, Block.Glowstone);
+    const { r, g, b } = computeBlockLightRGB(w);
+    for (let y = 0; y < 11; y++)
+      for (let z = 0; z < 11; z++)
+        for (let x = 0; x < 11; x++) {
+          const d = Math.abs(x - cx) + Math.abs(y - cx) + Math.abs(z - cx);
+          const i = w.index(x, y, z);
+          expect(r[i]).toBe(Math.max(0, 15 - d));
+          expect(g[i]).toBe(Math.max(0, 13 - d));
+          expect(b[i]).toBe(Math.max(0, 8 - d));
+        }
   });
 });

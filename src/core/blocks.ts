@@ -42,6 +42,12 @@ export interface BlockDef {
   readonly opaque: boolean;
   /** Light this block emits, `0` (none) … `15` (full). Drives block-light propagation. */
   readonly emission: number;
+  /**
+   * Tint of the light this block emits, `[r, g, b]` in 0..1 — each channel floods at
+   * `round(emission · channel)`. Omitted ⇒ white `[1, 1, 1]` (an emitter glows its full
+   * level on every channel, so RGB light reduces exactly to scalar block-light).
+   */
+  readonly emissionColor?: readonly [number, number, number];
   /** Base colour as [r, g, b] in 0..1. */
   readonly color: readonly [number, number, number];
 }
@@ -173,6 +179,7 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     solid: true,
     opaque: true,
     emission: 15,
+    emissionColor: rgb(255, 217, 140), // warm glow: R full (255), G/B dimmer
     color: rgb(248, 226, 120),
   },
 };
@@ -207,6 +214,11 @@ export function isOpaque(id: BlockId): boolean {
 /** Light level this block emits, `0`…`15` (`0` for everything but light sources). */
 export function emissionOf(id: BlockId): number {
   return blockDef(id).emission;
+}
+
+/** Tint of the light this block emits, `[r, g, b]` in 0..1; white `[1, 1, 1]` if unset. */
+export function emissionColorOf(id: BlockId): readonly [number, number, number] {
+  return blockDef(id).emissionColor ?? [1, 1, 1];
 }
 
 export function isAir(id: BlockId): boolean {
