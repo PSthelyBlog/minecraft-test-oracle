@@ -6,7 +6,7 @@
  */
 
 import type { World } from "../core/world";
-import { moveAndCollide } from "../core/physics";
+import { moveAndCollide, submersion } from "../core/physics";
 import type { Vec3 } from "../core/math";
 
 export interface PlayerState {
@@ -31,14 +31,26 @@ export interface MovementTuning {
   gravity: number; // negative
   jump: number; // positive impulse
   half: Vec3;
+  /** Fraction of horizontal + vertical velocity damped at full submersion, `0..1`. */
+  swimDrag: number;
+  /** Fraction of gravity cancelled at full submersion, `0..1` (1 = neutral buoyancy). */
+  buoyancy: number;
+  /** Upward velocity of a swim stroke (jump held while submerged). */
+  swimUp: number;
 }
 
 /**
  * Advance the player by `dt` seconds and return the next state (no mutation of
- * the input). Pure given (world, state, input, dt, tuning).
+ * the input). Pure given (world, water, state, input, dt, tuning).
+ *
+ * When the player box is in water (submersion `s > 0`, walking only) buoyancy scales
+ * gravity down by `s·buoyancy`, drag damps both horizontal speed and vertical velocity
+ * by `s·swimDrag`, and holding jump swims upward at `swimUp`. With `s = 0` every factor
+ * is the identity, so dry movement is exactly as before — a strict extension.
  */
 export function stepMovement(
   world: World,
+  water: Uint8Array,
   state: PlayerState,
   input: MovementInput,
   dt: number,
@@ -57,16 +69,25 @@ export function stepMovement(
     mz /= mlen;
   } // normalize so diagonals aren't faster
 
+  // Submersion drives buoyancy + drag (none while flying). `drag` is the keep-fraction
+  // of velocity; with swimDrag ≤ 1 it stays in [1−swimDrag, 1] > 0, so it never reverses
+  // a velocity's sign — it only slows.
+  const s = state.flying ? 0 : submersion(world, water, state.pos, t.half);
+  const drag = 1 - t.swimDrag * s;
+
   const speed = state.flying ? t.fly : t.walk;
-  const vx = mx * speed;
-  const vz = mz * speed;
+  const vx = mx * speed * drag;
+  const vz = mz * speed * drag;
   let vy = state.vel[1];
 
   if (state.flying) {
     vy = input.up * t.fly;
   } else {
-    vy += t.gravity * dt;
-    if (state.onGround && input.jump) vy = t.jump;
+    vy += t.gravity * dt * (1 - s * t.buoyancy); // buoyancy lightens gravity underwater
+    vy *= drag; // drag damps the fall/rise
+    if (s > 0 && input.jump)
+      vy = t.swimUp; // swim-stroke upward while submerged
+    else if (state.onGround && input.jump) vy = t.jump; // normal jump on ground
   }
 
   const delta: Vec3 = [vx * dt, vy * dt, vz * dt];

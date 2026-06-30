@@ -2,7 +2,7 @@ import { describe, test, expect } from "vitest";
 import fc from "fast-check";
 import { World } from "./world";
 import { Block } from "./blocks";
-import { boxIntersectsSolid, moveAndCollide } from "./physics";
+import { boxIntersectsSolid, moveAndCollide, submersion } from "./physics";
 import type { Vec3 } from "./math";
 
 /** A flat solid floor filling y in [0, floorTop], air above. */
@@ -177,5 +177,88 @@ describe("physics oracle", () => {
     expect(res.collided[0]).toBe(false);
     expect(res.pos[2]).toBeCloseTo(8.2, 9); // z blocked
     expect(res.pos[0]).toBeCloseTo(8.4, 9); // x slides freely
+  });
+});
+
+describe("submersion oracle", () => {
+  const W = new World(16, 24, 16);
+  // A flat pool: every cell strictly below `yLimit` holds water (surface plane at yLimit).
+  const poolField = (yLimit: number): Uint8Array => {
+    const f = new Uint8Array(W.volume);
+    for (let y = 0; y < yLimit && y < 24; y++)
+      for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) f[W.index(x, y, z)] = 1;
+    return f;
+  };
+
+  // RE-DERIVATION (headline): for a flat pool the box is horizontally fully covered, so the
+  // submersion is purely the 1D vertical depth fraction — a formula INDEPENDENT of the
+  // source's 3D per-cell overlap clipping. Over random box height + pool surface.
+  test("re-derivation: a flat pool's submersion is the 1D vertical depth fraction", () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 2, max: 20, noNaN: true }), // box centre y (kept in-bounds)
+        fc.integer({ min: 0, max: 24 }), // pool surface (cells below it are water)
+        (cy, yLimit) => {
+          const half: Vec3 = [0.4, 0.9, 0.4];
+          const s = submersion(W, poolField(yLimit), [8, cy, 8], half);
+          const loY = cy - 0.9;
+          const expected = Math.min(1, Math.max(0, Math.min(cy + 0.9, yLimit) - loY) / 1.8);
+          expect(s).toBeCloseTo(expected, 9);
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+
+  // INVARIANTS: submersion is in [0,1]; an all-dry field is 0; an all-wet field is 1 (box
+  // fully in-bounds). Over random pool depths and box positions.
+  test("invariants: 0 ≤ s ≤ 1; all-dry is 0; all-wet is 1", () => {
+    const half: Vec3 = [0.3, 0.9, 0.3];
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 24 }),
+        fc.double({ min: 1, max: 23, noNaN: true }),
+        (yLimit, cy) => {
+          const s = submersion(W, poolField(yLimit), [8, cy, 8], half);
+          expect(s).toBeGreaterThanOrEqual(0);
+          expect(s).toBeLessThanOrEqual(1 + 1e-9);
+        },
+      ),
+      { numRuns: 200 },
+    );
+    expect(submersion(W, new Uint8Array(W.volume), [8, 10, 8], half)).toBe(0); // all dry
+    expect(submersion(W, new Uint8Array(W.volume).fill(1), [8, 10, 8], half)).toBeCloseTo(1, 9); // all wet
+  });
+
+  // METAMORPHIC: lowering the box into a fixed pool only ever increases submersion.
+  test("metamorphic: lowering the box into a pool never decreases submersion", () => {
+    const field = poolField(12);
+    let prev = -1;
+    for (let cy = 16; cy >= 8; cy -= 0.5) {
+      const s = submersion(W, field, [8, cy, 8], [0.4, 0.9, 0.4]);
+      expect(s).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = s;
+    }
+  });
+
+  // EDGE CASES: a zero-volume box is 0 (the degenerate guard), and water OUTSIDE the world
+  // counts as dry — a box straddling the world edge is only as submerged as its in-bounds part.
+  test("edge: zero-volume box is 0; out-of-world space is dry", () => {
+    const allWet = new Uint8Array(W.volume).fill(1);
+    expect(submersion(W, allWet, [8, 10, 8], [0, 0, 0])).toBe(0); // degenerate box → 0, not NaN
+    // box centred at x=0.1 (half 0.3) spans x∈[−0.2, 0.4]; only [0, 0.4] is in-bounds, so the
+    // submerged fraction is 0.4 / 0.6 (y, z fully in-bounds and wet). Counting the OOB cell
+    // x=−1 as wet would push this toward 1.
+    expect(submersion(W, allWet, [0.1, 10, 8], [0.3, 0.9, 0.3])).toBeCloseTo(0.4 / 0.6, 9);
+  });
+
+  // GOLDEN (3D): a box straddling a single water cell in all three axes counts exactly the
+  // clipped overlap volume — pins the per-axis clipping independently of the pool formula.
+  test("golden: a box over one water cell counts exactly that overlap volume", () => {
+    const w = new World(4, 4, 4);
+    const f = new Uint8Array(w.volume);
+    f[w.index(1, 1, 1)] = 1; // one water cell occupying [1,2]³
+    // box [1.5,2.5]³ overlaps [1,2]³ in [1.5,2]³ = 0.5³ = 0.125; box volume 1 ⇒ s = 0.125
+    expect(submersion(w, f, [2, 2, 2], [0.5, 0.5, 0.5])).toBeCloseTo(0.125, 9);
   });
 });

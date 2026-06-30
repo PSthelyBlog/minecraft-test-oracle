@@ -368,6 +368,7 @@ interface MoveResult {
 
 boxIntersectsSolid(world: World, center: Vec3, half: Vec3): boolean
 moveAndCollide(world: World, center: Vec3, half: Vec3, delta: Vec3): MoveResult
+submersion(world: World, water: Uint8Array, center: Vec3, half: Vec3): number   // fraction of the AABB in water, 0..1
 ```
 
 **`moveAndCollide`** resolves movement one axis at a time (Y, then X, then Z) so the player
@@ -376,10 +377,15 @@ bleed is the caller's job). Assumes the starting box is not already embedded in 
 geometry, and that `|delta|` per axis is below one block (true for clamped frame steps) —
 it is an endpoint test, not a continuous sweep.
 
+**`submersion`** returns the fraction of the player's AABB inside water cells (water is binary, so
+each is a unit cube; out-of-world cells are dry). Drives buoyancy/drag in `stepMovement`.
+
 > Invariants: `boxIntersectsSolid` matches an _independent_ overlap oracle over a sparse
 > world (so all three axes' bounds matter); after a sub-block step from a free start the box
 > is never inside solid; landing flags `onGround`; a wall collision cancels only the blocked
-> axis; a ceiling collides on Y but is not `onGround`.
+> axis; a ceiling collides on Y but is not `onGround`. `submersion` is `0` dry / `1` fully
+> submerged, in `[0,1]`, monotone as the box descends — re-derived against a 1D depth formula
+> (flat pool) and a 3D overlap golden.
 
 ---
 
@@ -401,20 +407,30 @@ interface MovementInput {
   jump: boolean;     // Space, while walking
 }
 
-interface MovementTuning { walk: number; fly: number; gravity: number; jump: number; half: Vec3 }
+interface MovementTuning {
+  walk: number; fly: number; gravity: number; jump: number; half: Vec3;
+  swimDrag: number;  // velocity keep-fraction damped at full submersion (0..1)
+  buoyancy: number;  // gravity cancelled at full submersion (0..1; 1 = neutral)
+  swimUp: number;    // upward velocity of a swim stroke
+}
 
-stepMovement(world: World, state: PlayerState, input: MovementInput, dt: number, t: MovementTuning): PlayerState
+stepMovement(world: World, water: Uint8Array, state: PlayerState, input: MovementInput, dt: number, t: MovementTuning): PlayerState
 ```
 
 Pure per-frame player update — returns the next state, never mutates `state`. Horizontal
 input is normalized so diagonal movement isn't faster than cardinal. Walking applies gravity
 and only jumps when `onGround`; flying ignores gravity and drives vertical velocity directly
-from `up`. Collision is delegated to `moveAndCollide`.
+from `up`. Collision is delegated to `moveAndCollide`. **Swim:** with submersion `s > 0` (walking),
+buoyancy scales gravity down by `s·buoyancy`, drag damps horizontal + vertical velocity by
+`s·swimDrag`, and holding jump strokes upward at `swimUp` — `s = 0` is exactly the dry behaviour
+(strict extension).
 
 > Invariants: gravity strictly decreases vertical velocity while airborne; jump fires only
 > when grounded; diagonal speed equals cardinal speed; at `yaw=0` W→−Z and D→+X, at
 > `yaw=π/2` W→−X and D→−Z, with position advancing by `vel*dt`; landing zeroes vertical
-> velocity; the input state is never mutated.
+> velocity; the input state is never mutated. **Swim:** out of water nothing changes; deeper
+> submersion only ever slows the fall and the swim speed (never speeds up or reverses); a swim
+> stroke rises even off the ground.
 
 ---
 

@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 149 oracle tests once (Vitest)
+npm test            # run all 159 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -122,10 +122,10 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | ---------------- | -------------: | --------------------------------------------------------------------------------------- |
 | `blocks.ts`      |           100% | static data; falsifiability proven by injection (see below)                             |
 | `math.ts`        |           100% |                                                                                         |
-| `movement.ts`    |           100% |                                                                                         |
+| `movement.ts`    |           100% | incl. swim physics (buoyancy/drag/swim-up); every mutant killed                         |
 | `atlas.ts`       |           100% | per-face tile (layer) selection; `TILE_COLOR` static (injection-proven)                 |
 | `waterMesh.ts`   |           100% | translucent water pass; where/shade/winding censuses kill every mutant                  |
-| `physics.ts`     |           ~98% |                                                                                         |
+| `physics.ts`     |           ~99% | AABB collide + `submersion`; 1 equivalent survivor (the `delta[1] < 0` onGround guard)  |
 | `world.ts`       |           ~97% |                                                                                         |
 | `mesher.ts`      |           ~96% | chunked + greedy, tile-local UV/layer, AO, RGB light; 18 equivalent survivors           |
 | `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate       |
@@ -133,7 +133,7 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
 | `water.ts`       |           ~86% | flood fill (reachability/relaxation/inflow-witness); all 6 survivors equivalent (below) |
 | `light.ts`       |           ~83% | block/sky/combined + RGB channels; all 22 survivors equivalent (classes below)          |
-| **overall**      |     **~94.3%** | 149 tests across 18 files                                                               |
+| **overall**      |     **~94.6%** | 159 tests across 18 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -280,6 +280,12 @@ size` → `<=`) and the combine **loop bound** (`i < r.length` → `<=`) read on
     write) — the loop-bound class; and the max select (`block[i] > sky[i]` → `>=`) differs only
     on a tie, where both branches return the **same** value, so the max is unchanged. Both
     confirmed equivalent over 100 000 random arrays.
+- **`physics.ts` survivor (1, equivalent).** `moveAndCollide`'s onGround guard
+  (`delta[1] < 0` → `<= 0`) differs only when `delta[1] === 0` _and_ the Y move collides — but
+  a zero vertical move from a non-embedded start never newly intersects, so the guard's `<`/`<=`
+  boundary is unreachable (the measure-zero / unreachable-guard class). The `submersion` function
+  added for swim physics is **fully killed** — its degenerate-box guard and out-of-world dryness are
+  pinned by explicit edge cases, the overlap by the 1D-depth re-derivation and the 3D golden.
 - **`persistence.ts` survivors (6, all equivalent).** Two classes, both already seen elsewhere:
   the **run-extension loop bound** in `encodeWorld` (`j < data.length` → `j <= data.length` / the
   whole condition → `true`) is redundant with the inner `data[j] === value` guard — an

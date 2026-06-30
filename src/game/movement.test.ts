@@ -16,14 +16,31 @@ const TUNING: MovementTuning = {
   gravity: -28,
   jump: 9,
   half: [0.3, 0.9, 0.3],
+  swimDrag: 0.5,
+  buoyancy: 0.8,
+  swimUp: 4,
 };
 const NO_INPUT: MovementInput = { forward: 0, strafe: 0, up: 0, jump: false };
+
+// All movement test worlds are 16×24×16; this all-dry water field keeps submersion 0, so
+// these dry-movement oracles exercise the strict-extension (s = 0) path unchanged.
+const DRY = new Uint8Array(16 * 24 * 16);
 
 function floorWorld(): World {
   const w = new World(16, 24, 16);
   for (let y = 0; y <= 3; y++)
     for (let z = 0; z < w.sizeZ; z++) for (let x = 0; x < w.sizeX; x++) w.set(x, y, z, Block.Stone);
   return w;
+}
+
+const fullWater = (): Uint8Array => new Uint8Array(16 * 24 * 16).fill(1);
+// Water field wet for every cell strictly below `yLimit` (a flat pool with surface at yLimit).
+function waterBelowY(yLimit: number): Uint8Array {
+  const w = new World(16, 24, 16);
+  const field = new Uint8Array(w.volume);
+  for (let y = 0; y < yLimit && y < 24; y++)
+    for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) field[w.index(x, y, z)] = 1;
+  return field;
 }
 
 function player(over: Partial<PlayerState> = {}): PlayerState {
@@ -44,7 +61,14 @@ describe("movement oracle", () => {
   test("gravity pulls vertical velocity down while airborne", () => {
     fc.assert(
       fc.property(fc.double({ min: 0.001, max: 0.05, noNaN: true }), (dt) => {
-        const next = stepMovement(floorWorld(), player({ vel: [0, 0, 0] }), NO_INPUT, dt, TUNING);
+        const next = stepMovement(
+          floorWorld(),
+          DRY,
+          player({ vel: [0, 0, 0] }),
+          NO_INPUT,
+          dt,
+          TUNING,
+        );
         expect(next.vel[1]).toBeCloseTo(TUNING.gravity * dt, 9);
         expect(next.vel[1]).toBeLessThan(0);
       }),
@@ -57,6 +81,7 @@ describe("movement oracle", () => {
     // resting ON the floor: box bottom at y=4 ⇒ centre y=4.9 (not embedded in it)
     const grounded = stepMovement(
       w,
+      DRY,
       player({ pos: [8, 4.9, 8], onGround: true }),
       { ...NO_INPUT, jump: true },
       0.016,
@@ -66,6 +91,7 @@ describe("movement oracle", () => {
 
     const midair = stepMovement(
       w,
+      DRY,
       player({ pos: [8, 12, 8], onGround: false }),
       { ...NO_INPUT, jump: true },
       0.016,
@@ -80,6 +106,7 @@ describe("movement oracle", () => {
     const w = floorWorld();
     const cardinal = stepMovement(
       w,
+      DRY,
       player({ onGround: true }),
       { ...NO_INPUT, forward: 1 },
       0.016,
@@ -87,6 +114,7 @@ describe("movement oracle", () => {
     );
     const diagonal = stepMovement(
       w,
+      DRY,
       player({ onGround: true }),
       { ...NO_INPUT, forward: 1, strafe: 1 },
       0.016,
@@ -105,6 +133,7 @@ describe("movement oracle", () => {
     const dt = 0.1;
     const fwd = stepMovement(
       w,
+      DRY,
       player({ pos: [8, 12, 8], flying: true }),
       { ...NO_INPUT, forward: 1 },
       dt,
@@ -117,6 +146,7 @@ describe("movement oracle", () => {
 
     const strafe = stepMovement(
       w,
+      DRY,
       player({ pos: [8, 12, 8], flying: true }),
       { ...NO_INPUT, strafe: 1 },
       dt,
@@ -135,6 +165,7 @@ describe("movement oracle", () => {
     const yaw = Math.PI / 2;
     const fwd = stepMovement(
       w,
+      DRY,
       player({ pos: [8, 12, 8], flying: true, yaw }),
       { ...NO_INPUT, forward: 1 },
       0.05,
@@ -145,6 +176,7 @@ describe("movement oracle", () => {
 
     const strafe = stepMovement(
       w,
+      DRY,
       player({ pos: [8, 12, 8], flying: true, yaw }),
       { ...NO_INPUT, strafe: 1 },
       0.05,
@@ -160,6 +192,7 @@ describe("movement oracle", () => {
     const w = floorWorld();
     const up = stepMovement(
       w,
+      DRY,
       player({ pos: [8, 12, 8], flying: true, vel: [0, -50, 0] }),
       { ...NO_INPUT, up: 1 },
       0.016,
@@ -168,6 +201,7 @@ describe("movement oracle", () => {
     expect(up.vel[1]).toBe(TUNING.fly);
     const hover = stepMovement(
       w,
+      DRY,
       player({ pos: [8, 12, 8], flying: true, vel: [0, -50, 0] }),
       { ...NO_INPUT, up: 0 },
       0.016,
@@ -182,7 +216,7 @@ describe("movement oracle", () => {
   test("a falling player lands on the floor and is never inside it", () => {
     const w = floorWorld(); // floor top at y=3 → surface plane y=4
     let s = player({ pos: [8, 6, 8], vel: [0, 0, 0] });
-    for (let i = 0; i < 200; i++) s = stepMovement(w, s, NO_INPUT, 1 / 60, TUNING);
+    for (let i = 0; i < 200; i++) s = stepMovement(w, DRY, s, NO_INPUT, 1 / 60, TUNING);
     expect(s.onGround).toBe(true);
     expect(s.pos[1]).toBeGreaterThanOrEqual(4 - 1e-6); // box bottom rests at/above y=4
     expect(s.pos[1]).toBeLessThan(6); // it actually fell
@@ -194,8 +228,96 @@ describe("movement oracle", () => {
     const s = player({ pos: [8, 10, 8] as Vec3, vel: [1, 2, 3] });
     const frozenPos = [...s.pos];
     const frozenVel = [...s.vel];
-    stepMovement(floorWorld(), s, { forward: 1, strafe: 1, up: 1, jump: true }, 0.016, TUNING);
+    stepMovement(floorWorld(), DRY, s, { forward: 1, strafe: 1, up: 1, jump: true }, 0.016, TUNING);
     expect([...s.pos]).toEqual(frozenPos);
     expect([...s.vel]).toEqual(frozenVel);
+  });
+});
+
+describe("swim physics (submersion-driven buoyancy & drag)", () => {
+  const W = floorWorld(); // box stays at y≥10 in open air above the floor → no collision
+
+  // STRICT EXTENSION: out of water (s = 0) the swim terms vanish — a dry step is exactly
+  // gravity, byte-identical to pre-swim movement. (DRY field ⇒ submersion 0.)
+  test("out of water (s=0) the swim tuning has no effect", () => {
+    const dt = 0.02;
+    const next = stepMovement(W, DRY, player({ pos: [8, 12, 8] }), NO_INPUT, dt, TUNING);
+    expect(next.vel[1]).toBeCloseTo(TUNING.gravity * dt, 9); // pure gravity, no buoyancy/drag
+  });
+
+  // GOLDEN (buoyancy + drag): fully submerged, a falling player's vertical velocity is
+  // (vy0 + gravity·dt·(1−buoyancy)) · (1−swimDrag), re-derived from the tuning — and is
+  // strictly less negative than the same dry step (water slows the fall).
+  test("fully submerged: gravity is lightened then damped, slower than a dry fall", () => {
+    const dt = 0.02;
+    const start = player({ pos: [8, 10, 8], vel: [0, -5, 0] });
+    const wet = stepMovement(W, fullWater(), start, NO_INPUT, dt, TUNING).vel[1];
+    const dry = stepMovement(W, DRY, start, NO_INPUT, dt, TUNING).vel[1];
+    const expected =
+      (start.vel[1] + TUNING.gravity * dt * (1 - TUNING.buoyancy)) * (1 - TUNING.swimDrag);
+    expect(wet).toBeCloseTo(expected, 9);
+    expect(wet).toBeGreaterThan(dry); // less negative — buoyancy + drag slow the descent
+  });
+
+  // DRAG (horizontal): fully submerged, walking speed is scaled by (1−swimDrag) and is
+  // strictly slower than dry. Moving DIAGONALLY (forward + strafe) so BOTH the x and z
+  // velocity components are non-zero — each must be damped (not just the resultant speed).
+  test("fully submerged: both horizontal components are damped by drag", () => {
+    const dt = 0.016;
+    const input = { ...NO_INPUT, forward: 1, strafe: 1 };
+    const wet = stepMovement(W, fullWater(), player({ pos: [8, 10, 8] }), input, dt, TUNING);
+    const dry = stepMovement(W, DRY, player({ pos: [8, 10, 8] }), input, dt, TUNING);
+    const sp = (s: PlayerState): number => Math.hypot(s.vel[0], s.vel[2]);
+    expect(sp(wet)).toBeCloseTo(TUNING.walk * (1 - TUNING.swimDrag), 9);
+    // each component scaled by exactly (1 − swimDrag) vs the dry step (pins x and z, not just speed)
+    expect(Math.abs(wet.vel[0])).toBeCloseTo(Math.abs(dry.vel[0]) * (1 - TUNING.swimDrag), 9);
+    expect(Math.abs(wet.vel[2])).toBeCloseTo(Math.abs(dry.vel[2]) * (1 - TUNING.swimDrag), 9);
+    expect(Math.abs(wet.vel[0])).toBeGreaterThan(0); // genuinely moving on x (mx ≠ 0)
+  });
+
+  // SWIM-UP: holding jump while submerged strokes upward at `swimUp` even when NOT on the
+  // ground (you can't normally jump midair) — so a submerged player can rise to the surface.
+  test("swim stroke: jump while submerged rises, even off the ground", () => {
+    const up = stepMovement(W, fullWater(), player({ pos: [8, 10, 8], onGround: false }), { ...NO_INPUT, jump: true }, 0.016, TUNING); // prettier-ignore
+    expect(up.vel[1]).toBe(TUNING.swimUp); // upward stroke
+    expect(up.pos[1]).toBeGreaterThan(10); // actually rose
+    // dry + midair + jump must NOT launch (gating still holds out of water)
+    const dryMid = stepMovement(W, DRY, player({ pos: [8, 10, 8], onGround: false }), { ...NO_INPUT, jump: true }, 0.016, TUNING); // prettier-ignore
+    expect(dryMid.vel[1]).toBeLessThanOrEqual(0);
+  });
+
+  // METAMORPHIC (monotonic): the deeper the submersion, the less negative a falling
+  // player's vertical velocity — dry < half-submerged < fully submerged.
+  test("metamorphic: deeper submersion ⇒ a slower (less negative) fall", () => {
+    const dt = 0.02;
+    const start = player({ pos: [8, 10, 8], vel: [0, -5, 0] });
+    const dry = stepMovement(W, DRY, start, NO_INPUT, dt, TUNING).vel[1];
+    const half = stepMovement(W, waterBelowY(10), start, NO_INPUT, dt, TUNING).vel[1]; // box half under
+    const full = stepMovement(W, fullWater(), start, NO_INPUT, dt, TUNING).vel[1];
+    expect(dry).toBeLessThan(half);
+    expect(half).toBeLessThan(full);
+  });
+
+  // BOUNDED INVARIANT: drag only ever slows — over random submersion depth, downward
+  // input vy, and walk direction, the submerged step never speeds the fall vs dry and
+  // never reverses the horizontal velocity's sign (the keep-fraction stays in (0,1]).
+  test("invariant: drag slows but never reverses or speeds up", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 24 }), // pool surface height → submersion depth
+        fc.double({ min: -10, max: 0, noNaN: true }), // a downward (or zero) vy
+        fc.constantFrom(-1, 0, 1), // forward input
+        (yLimit, vy0, forward) => {
+          const start = player({ pos: [8, 10, 8], vel: [0, vy0, 0] });
+          const wet = stepMovement(W, waterBelowY(yLimit), start, { ...NO_INPUT, forward }, 0.02, TUNING); // prettier-ignore
+          const dry = stepMovement(W, DRY, start, { ...NO_INPUT, forward }, 0.02, TUNING);
+          // never accelerates the fall beyond dry; horizontal keeps dry's sign, magnitude ≤ dry.
+          expect(wet.vel[1]).toBeGreaterThanOrEqual(dry.vel[1] - 1e-9);
+          expect(Math.sign(wet.vel[2]) === 0 || Math.sign(wet.vel[2]) === Math.sign(dry.vel[2])).toBe(true); // prettier-ignore
+          expect(Math.abs(wet.vel[2])).toBeLessThanOrEqual(Math.abs(dry.vel[2]) + 1e-9);
+        },
+      ),
+      { numRuns: 200 },
+    );
   });
 });

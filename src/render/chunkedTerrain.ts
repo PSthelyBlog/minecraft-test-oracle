@@ -54,6 +54,11 @@ export class ChunkedTerrain {
         }
   }
 
+  /** The current water presence field (0/1), for player physics (submersion). */
+  get waterField(): Uint8Array {
+    return this.water;
+  }
+
   private slot(cx: number, cy: number, cz: number): number {
     return cx + this.dims.nx * (cz + this.dims.nz * cy);
   }
