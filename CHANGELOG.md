@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **Partial-height water surfaces**: the water pass now tops each cell out at its fill
+  height `y + level/MAX_WATER` (with cropped side tiles) instead of a full unit cube, so a
+  spreading sheet reads shallower than a deep source. A submerged cell (water directly
+  above) still renders full height, so a column has no internal step (surface-cell-only).
+  Pinned by a new **height census** (every face's top at `y + level/MAX`) and a **UV
+  census** (side tiles crop to height; caps keep the full tile). (#78)
 
 ## [0.4.0] - 2026-06-29
 

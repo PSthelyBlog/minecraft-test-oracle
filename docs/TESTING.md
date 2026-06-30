@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 147 oracle tests once (Vitest)
+npm test            # run all 149 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -124,7 +124,7 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `math.ts`        |           100% |                                                                                         |
 | `movement.ts`    |           100% |                                                                                         |
 | `atlas.ts`       |           100% | per-face tile (layer) selection; `TILE_COLOR` static (injection-proven)                 |
-| `waterMesh.ts`   |           100% | translucent water pass; where/shade/winding censuses kill every mutant                  |
+| `waterMesh.ts`   |           ~99% | translucent water pass; where/shade/winding/**height/UV** censuses; 1 equiv survivor    |
 | `physics.ts`     |           ~98% |                                                                                         |
 | `world.ts`       |           ~97% |                                                                                         |
 | `mesher.ts`      |           ~96% | incl. chunked + greedy meshing, tile-local UV/layer, AO, light; 16 equivalent survivors |
@@ -133,7 +133,7 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
 | `water.ts`       |           ~86% | flow CA (fixpoint/relaxation/reachability); all 8 survivors equivalent (classes below)  |
 | `light.ts`       |           ~84% | block/sky/combined + incremental updates; all 30 survivors equivalent (classes below)   |
-| **overall**      |     **~94.0%** | 147 tests across 18 files                                                               |
+| **overall**      |     **~94.0%** | 149 tests across 18 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -320,6 +320,18 @@ orig.set(c, …)` → `true`/`false` on cells the update only ever touches once 
   - _the fall guard_ (`water[bi] < MAX_WATER` → `true` / `<=`): the cell below a water cell always
     fills to `MAX_WATER`; the guard only avoids redundantly re-enqueuing a cell already at full,
     so forcing it changes the queue work but not the field (the `<`/`<=` redundant-guard class).
+- **`waterMesh.ts` survivor (1, equivalent) — the submerged-cell fill-height branch.** Partial-height
+  water (#78) renders each cell's top at `h = (water directly above) ? 1 : level/MAX_WATER`, so only the
+  topmost (surface) cell of a body is thinned and a submerged column has no internal step. The
+  `ConditionalExpression → false` mutant forces `h = level/MAX_WATER` even for submerged cells — yet the
+  field is unchanged, because **a non-solid cell directly below a water cell always fills to `MAX_WATER`**
+  (`water.ts`'s fall rule), so any cell with water above is itself at level `7` and `level/MAX_WATER = 1`
+  equals the `? 1` branch. The surface cells the height census actually pins (above is air → `h < 1` at
+  any level `< MAX`) never enter the mutated branch, so the census can't and shouldn't kill it. Confirmed
+  equivalent empirically: over 5000 random worlds, all 585 269 cells with water above were at `MAX_WATER`
+  (0 violations) — the same CA-invariant family as `water.ts`'s fall guard above. The branch that _is_
+  observable (the surface top at `y + level/MAX`, and the side-tile UV crop) is killed by the new **height
+  census** and **UV census**.
 
 `raycast.ts` used to sit lowest (~84%) precisely because DDA traversal has many
 degenerate-input guards. The ones that encode a _choice_ (tie-break order, inclusive reach,
