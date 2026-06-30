@@ -22,7 +22,8 @@ export interface MovementInput {
   forward: number; // -1..1 (W - S)
   strafe: number; // -1..1 (D - A)
   up: number; // -1..1 (Space - Shift), only used when flying
-  jump: boolean; // Space, used when walking
+  jump: boolean; // Space — jump (on ground) or swim up (submerged)
+  sneak: boolean; // Shift — swim down (submerged); no effect on land
 }
 
 export interface MovementTuning {
@@ -45,8 +46,9 @@ export interface MovementTuning {
  *
  * When the player box is in water (submersion `s > 0`, walking only) buoyancy scales
  * gravity down by `s·buoyancy`, drag damps both horizontal speed and vertical velocity
- * by `s·swimDrag`, and holding jump swims upward at `swimUp`. With `s = 0` every factor
- * is the identity, so dry movement is exactly as before — a strict extension.
+ * by `s·swimDrag`, and holding jump swims upward at `swimUp` (or sneak swims downward at
+ * `−swimUp`). With `s = 0` every factor is the identity, so dry movement is exactly as
+ * before — a strict extension (sneak does nothing on land).
  */
 export function stepMovement(
   world: World,
@@ -87,6 +89,8 @@ export function stepMovement(
     vy *= drag; // drag damps the fall/rise
     if (s > 0 && input.jump)
       vy = t.swimUp; // swim-stroke upward while submerged
+    else if (s > 0 && input.sneak)
+      vy = -t.swimUp; // swim-stroke downward while submerged (mirror of jump)
     else if (state.onGround && input.jump) vy = t.jump; // normal jump on ground
   }
 

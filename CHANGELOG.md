@@ -11,10 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Swim physics** (`core/physics.ts` + `game/movement.ts`): a pure `submersion(world, water,
 center, half)` returns the fraction of the player's box inside water; `stepMovement` uses it so
-  that underwater, buoyancy lightens gravity, drag damps movement, and holding jump strokes upward
-  to the surface — all scaled by submersion, with the dry path byte-identical (strict extension).
-  Pinned by `submersion`'s 1D-depth re-derivation + 3D overlap golden + edge cases, and movement
-  metamorphics (deeper ⇒ slower fall, bounded drag that never reverses, swim-up off the ground). (#82)
+  that underwater, buoyancy lightens gravity, drag damps movement, holding **jump** strokes upward
+  and holding **sneak** strokes downward (mirror of jump) — all scaled by submersion, with the dry
+  path byte-identical (strict extension; sneak does nothing on land). Pinned by `submersion`'s
+  1D-depth re-derivation + 3D overlap golden + edge cases, and movement metamorphics (deeper ⇒
+  slower fall, bounded drag that never reverses, swim-up/down strokes that are exact negations). (#82, #92)
 
 - **Coloured (RGB) light** (`core/light.ts`): emitters carry an optional `emissionColor`
   tint (Glowstone now glows warm); `computeBlockLightRGB` floods the three channels

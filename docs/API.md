@@ -404,7 +404,8 @@ interface MovementInput {
   forward: number;   // -1..1  (W - S)
   strafe: number;    // -1..1  (D - A)
   up: number;        // -1..1  (Space - Shift), only while flying
-  jump: boolean;     // Space, while walking
+  jump: boolean;     // Space — jump (grounded) or swim up (submerged)
+  sneak: boolean;    // Shift — swim down (submerged); no effect on land
 }
 
 interface MovementTuning {
@@ -422,15 +423,15 @@ input is normalized so diagonal movement isn't faster than cardinal. Walking app
 and only jumps when `onGround`; flying ignores gravity and drives vertical velocity directly
 from `up`. Collision is delegated to `moveAndCollide`. **Swim:** with submersion `s > 0` (walking),
 buoyancy scales gravity down by `s·buoyancy`, drag damps horizontal + vertical velocity by
-`s·swimDrag`, and holding jump strokes upward at `swimUp` — `s = 0` is exactly the dry behaviour
-(strict extension).
+`s·swimDrag`, holding jump strokes upward at `swimUp` and holding sneak strokes downward at
+`−swimUp` — `s = 0` is exactly the dry behaviour (strict extension; sneak does nothing on land).
 
 > Invariants: gravity strictly decreases vertical velocity while airborne; jump fires only
 > when grounded; diagonal speed equals cardinal speed; at `yaw=0` W→−Z and D→+X, at
 > `yaw=π/2` W→−X and D→−Z, with position advancing by `vel*dt`; landing zeroes vertical
 > velocity; the input state is never mutated. **Swim:** out of water nothing changes; deeper
-> submersion only ever slows the fall and the swim speed (never speeds up or reverses); a swim
-> stroke rises even off the ground.
+> submersion only ever slows the fall and the swim speed (never speeds up or reverses); a jump
+> stroke rises and a sneak stroke dives (exact negations), even off the ground.
 
 ---
 
