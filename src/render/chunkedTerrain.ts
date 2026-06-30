@@ -14,7 +14,7 @@ import { Group, Mesh, type Material } from "three";
 import type { World } from "../core/world";
 import { buildGreedyChunkMesh, chunkDims, chunksAffectedByEdit, CHUNK_SIZE } from "../core/mesher";
 import { computeBlockLight, computeSkyLight, updateLight } from "../core/light";
-import { computeWater } from "../core/water";
+import { computeWater, updateWater } from "../core/water";
 import { buildWaterChunkMesh } from "../core/waterMesh";
 import { geometryFromMesh } from "./chunkGeometry";
 
@@ -105,8 +105,8 @@ export class ChunkedTerrain {
 
   /**
    * Rebuild the chunks a block edit at (x, y, z) can have changed — in geometry,
-   * lighting, OR water. Light is updated incrementally (`updateLight`); water is
-   * recomputed and diffed against the previous field. A chunk must remesh if its
+   * lighting, OR water. Both light and water are updated incrementally (`updateLight`,
+   * `updateWater`), each returning the exact cells it changed. A chunk must remesh if its
    * geometry, the light at a face's open cell, or its water changed — for each such
    * cell that is exactly `chunksAffectedByEdit(cell)`, so we union it over the edit and
    * every changed light/water cell, then rebuild both meshes there.
@@ -122,10 +122,7 @@ export class ChunkedTerrain {
       z,
     );
 
-    const next = computeWater(this.world);
-    const waterChanged: number[] = [];
-    for (let i = 0; i < next.length; i++) if (next[i] !== this.water[i]) waterChanged.push(i);
-    this.water = next;
+    const waterChanged = updateWater(this.world, this.water, x, y, z);
 
     const { sizeX, sizeZ } = this.world;
     const seen = new Set<number>();

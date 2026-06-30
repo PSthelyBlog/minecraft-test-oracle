@@ -3,7 +3,7 @@ import fc from "fast-check";
 import { World } from "./world";
 import { Block, isSolid } from "./blocks";
 import { generateTerrain } from "./terrain";
-import { computeWater, MAX_WATER } from "./water";
+import { computeWater, updateWater, MAX_WATER } from "./water";
 
 /**
  * Water flow is the least fixpoint of a monotone CA. These oracles re-derive it
@@ -209,5 +209,69 @@ describe("water-flow oracle", () => {
     expect((h >>> 0).toString(16)).toBe("e01e9736");
     expect(Array.from(water)).toEqual(Array.from(relaxWater(w))); // independent cross-check
     expect(Array.from(computeWater(w))).toEqual(Array.from(water)); // determinism
+  });
+});
+
+// The blocks an edit can swap to: open air, a solid dam, and a full source — the whole
+// space that matters to flow (solidity and source-ness). Air covers the non-solid
+// non-source case directly.
+const editBlocks = [Block.Air, Block.Stone, Block.Water];
+const cube = fc.array(fc.constantFrom(...editBlocks), { minLength: 125, maxLength: 125 });
+// Invert world.index = x + 5*(z + 5*y): x fastest, then z, then y (y-major).
+const decode5 = (idx: number): [number, number, number] => [
+  idx % 5,
+  Math.floor(idx / 25),
+  Math.floor(idx / 5) % 5,
+];
+
+describe("incremental-water oracle", () => {
+  // DIFFERENTIAL (headline): replaying a random sequence of block edits through
+  // updateWater must leave the field byte-identical to a from-scratch computeWater —
+  // after EVERY edit. Any missed case in the directional removal/add logic (a dried
+  // column, a stale spread, an uncollected re-flood border) shows up as a mismatch.
+  // This IS the empirical proof the incremental update equals the fixpoint.
+  test("differential: incremental == from-scratch recompute, edit by edit", () => {
+    fc.assert(
+      fc.property(
+        cube,
+        fc.array(fc.tuple(fc.nat(124), fc.constantFrom(...editBlocks)), {
+          minLength: 1,
+          maxLength: 12,
+        }),
+        (initial, edits) => {
+          const w = fill(initial);
+          const water = computeWater(w);
+          for (const [idx, nb] of edits) {
+            const [x, y, z] = decode5(idx);
+            w.data[idx] = nb; // apply the edit (== w.set within bounds)
+            updateWater(w, water, x, y, z);
+            expect(Array.from(water)).toEqual(Array.from(computeWater(w)));
+          }
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+
+  // CHANGED-SET CENSUS: the indices updateWater returns are EXACTLY the cells whose
+  // level changed (vs a before-snapshot) — no stale omission (a missed cell ⇒ a
+  // stale-rendered water chunk) and no spurious entry — and the list is duplicate-free.
+  // This is what the renderer trusts to decide which chunks to remesh.
+  test("census: the returned changed set is exactly the cells whose level changed", () => {
+    fc.assert(
+      fc.property(cube, fc.nat(124), fc.constantFrom(...editBlocks), (initial, idx, nb) => {
+        const w = fill(initial);
+        const water = computeWater(w);
+        const before = Array.from(water);
+        const [x, y, z] = decode5(idx);
+        w.data[idx] = nb;
+        const changed = updateWater(w, water, x, y, z);
+        const actual = new Set<number>();
+        for (let i = 0; i < water.length; i++) if (water[i] !== before[i]) actual.add(i);
+        expect(new Set(changed)).toEqual(actual);
+        expect(changed.length).toBe(new Set(changed).size); // no duplicates
+      }),
+      { numRuns: 400 },
+    );
   });
 });

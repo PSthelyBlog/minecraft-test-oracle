@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Incremental water updates** (`updateWater`): after a single block edit the water
+  field is now maintained in place with a two-pass removal/add flood — mirroring the
+  incremental light updater — instead of recomputing `computeWater` over the whole world.
+  Because flow is directional (fall is downward-only, spread is horizontal `−1`, never
+  up), the removal pass walks down + horizontal-dependent to clear and collects above +
+  horizontal-independent + below-source cells as re-flood borders. `ChunkedTerrain` now
+  uses it, dropping the per-edit full recompute. Pinned by a **differential** oracle
+  (incremental == from-scratch `computeWater` after every edit of random edit-sequences)
+  and a **changed-set census**. (#79)
+
 ### Changed
 
 - **Partial-height water surfaces**: the water pass now tops each cell out at its fill
