@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 153 oracle tests once (Vitest)
+npm test            # run all 149 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -127,13 +127,13 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `waterMesh.ts`   |           100% | translucent water pass; where/shade/winding censuses kill every mutant                  |
 | `physics.ts`     |           ~98% |                                                                                         |
 | `world.ts`       |           ~97% |                                                                                         |
-| `mesher.ts`      |           ~96% | incl. chunked + greedy meshing, tile-local UV/layer, AO, light; 16 equivalent survivors |
+| `mesher.ts`      |           ~96% | chunked + greedy, tile-local UV/layer, AO, RGB light; 18 equivalent survivors           |
 | `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate       |
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)                   |
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
 | `water.ts`       |           ~86% | flood fill (reachability/relaxation/inflow-witness); all 6 survivors equivalent (below) |
-| `light.ts`       |           ~84% | block/sky/combined + incremental + RGB; all 39 survivors equivalent (classes below)     |
-| **overall**      |     **~93.6%** | 153 tests across 18 files                                                               |
+| `light.ts`       |           ~83% | block/sky/combined + RGB channels; all 22 survivors equivalent (classes below)          |
+| **overall**      |     **~94.3%** | 149 tests across 18 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -211,13 +211,14 @@ document these, not to chase a vanity number. The ones left here:
   so `v ∈ {2,2,1}`), hence `sv[0]` is structurally always `0` and `±sv[0]` is indistinguishable.
   The **Y and Z** components of the same expression are _not_ equivalent (both axes appear as a
   `v`) and the AO census kills them; only this one X mutant survives.
-- **Greedy-mesher survivors (11, all equivalent).** The greedy mesher
+- **Greedy-mesher survivors (13, all equivalent).** The greedy mesher
   (`buildGreedyMesh` / `buildGreedyChunkMesh`) is pinned by an **area-conservation census**
   (its quads decompose to exactly the visible unit faces — no overlap, gap, or stray), a
   **solid-cube golden** (6 quads, so a no-op "greedy" can't pass), a **tile/UV census** with a
   per-cell unit-tile check, an **AO census** that re-derives each covered cell's shading and the
-  brighter-diagonal split, and a **light census** (below) that re-derives each cell's shade × AO
-  × light. What survives is genuinely equivalent, in classes already seen above:
+  brighter-diagonal split, and a **per-channel light census** (below) that re-derives each cell's
+  shade × AO × light on all three channels. What survives is genuinely equivalent, in classes
+  already seen above:
   - _the `sAxis` ternary branches_ (`mesher.ts`, `ConditionalExpression → true`/`false` in the
     `f.corners[1][k] !== f.corners[0][k]` chain): `sAxis` only matters through `sAxis === u`,
     which decides whether a merged quad's UV `s` scales by `w` or `h`. Across the six faces
@@ -229,10 +230,10 @@ document these, not to chase a vanity number. The ones left here:
     a permutation of `{0,1,2}`; the four AO corners are all filled), so the initializer's value
     is never observed — the same class as the terrain/`world` initializer survivors.
   - _mask preallocation_ (`new Array(U*V)` → `new Array()` for `key`/`keyLevel`/`keyLayer`/
-    `keyLight`/`used`): JS arrays grow on index assignment and an unset slot reads `undefined`
-    (falsy, like the `false`/`null` fill), so dropping the size hint changes nothing — only the
-    entries the greedy walk actually sets are ever read. (`keyLight`, the per-face light level in
-    the merge key added for light-aware meshing, is in this same class.)
+    `keyLightR`/`keyLightG`/`keyLightB`/`used`): JS arrays grow on index assignment and an unset
+    slot reads `undefined` (falsy, like the `false`/`null` fill), so dropping the size hint changes
+    nothing — only the entries the greedy walk actually sets are ever read. (The three per-channel
+    `keyLight*` masks — the RGB face light in the merge key — are in this same class.)
   - _the rectangle-height loop bound_ (`sv + h < V` → `<=` / `sv - h`): redundant with the inner
     row scan, which breaks as soon as a cell's key differs — and an out-of-slice read is
     `undefined ≠ key`, so it stops at the same `h` (the mesher/persistence loop-bound class).
@@ -249,7 +250,7 @@ size` → `<=`) and the combine **loop bound** (`i < r.length` → `<=`) read on
   independent relaxation, the red-channel byte-for-byte reduction to scalar block-light, the
   per-channel-max census, the warm `r ≥ g ≥ b` ordering invariant, and a closed-form per-channel
   Manhattan-decay golden.
-- **`light.ts` survivors (30, all equivalent).** Block-light and skylight are the same BFS
+- **`light.ts` survivors (13, all equivalent).** Block-light and skylight are the same BFS
   flood (a shared `floodLight`) whose result is a max-fixpoint, so several mutation points are
   provably output-preserving — the same classes seen above, here intrinsic to flood-fill. The
   subtler ones were confirmed equivalent empirically (identical field over hundreds–thousands of
@@ -279,33 +280,6 @@ size` → `<=`) and the combine **loop bound** (`i < r.length` → `<=`) read on
     write) — the loop-bound class; and the max select (`block[i] > sky[i]` → `>=`) differs only
     on a tie, where both branches return the **same** value, so the max is unchanged. Both
     confirmed equivalent over 100 000 random arrays.
-  - _the incremental updaters_ (`updateBlockLight` / `updateSkyLight` / `updateLight`, 17
-    survivors). These are pinned by the **differential oracle** — the incrementally-maintained
-    block / sky / combined fields equal a from-scratch `computeBlockLight` / `computeSkyLight` /
-    `computeLight` after **every** edit of random edit-sequences — plus per-field and combined
-    **changed-set censuses** (the returned indices are exactly the cells that changed). The
-    survivors that remain fall in classes already seen, plus two intrinsic to the two-pass scheme;
-    note that surviving the differential oracle (full field vs from-scratch over 800 random
-    edit-sequence runs) **is** the empirical proof that each leaves the field identical:
-    - _the same flood/queue classes_: the removal queue bound (`head < rqx.length` → `<=`) and the
-      `columnOpenAbove` scan bound (`yy < sizeY` → `<=`) read one cell out of bounds → a no-op
-      (loop-bound class); the removal neighbour-offset signs (`x + dx` → `x − dx` ×3) visit the
-      same symmetric neighbour set; and `updateLight`'s max select (`> ` → `>=`) is the same
-      max-tie equivalence as `computeLight`.
-    - _remove-then-re-add idempotency_ (the two-pass's own class): mutants that make the removal
-      pass clear **extra** cells — `if (nl === 0) continue` → `false` (re-process dark/opaque
-      cells, which stay 0), the sky column-removal guard `nowOpaque && openAbove` → `true` / `||`,
-      its `if (isOpaque) break` → `false` (clear past the first opaque block), the emission re-add
-      guard `e > 0` → `true`/`>=` (re-seed a 0-emitter, a no-op), and the sky add-column scan
-      direction `y − 1` → `y + 1` (re-seed already-full sky cells above) — all do extra work the
-      **add flood corrects back to the same fixpoint**, since the removal still collects every
-      independent border to re-light from. The differential oracle confirms the field is unchanged.
-    - _visited-once / already-captured change tracking_: the first-touch guards `if (!orig.has(c))
-orig.set(c, …)` → `true`/`false` on cells the update only ever touches once (each removed
-      cell is set to 0 then skipped by `nl === 0`; the sky-add `i0` guard runs after `i0` was
-      already captured at the top), so capturing the original "again" is identical — the changed
-      set is unaffected (and the per-field census would catch any cell whose baseline actually
-      drifted, which killed the over-reporting bookkeeping mutants).
 - **`persistence.ts` survivors (6, all equivalent).** Two classes, both already seen elsewhere:
   the **run-extension loop bound** in `encodeWorld` (`j < data.length` → `j <= data.length` / the
   whole condition → `true`) is redundant with the inner `data[j] === value` guard — an

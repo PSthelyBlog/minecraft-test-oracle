@@ -16,7 +16,7 @@ import {
   type ChunkMesh,
 } from "./mesher";
 import { tileIndexFor } from "./atlas";
-import { computeLight, MAX_LIGHT } from "./light";
+import { computeLightRGB, type RGBLight, MAX_LIGHT } from "./light";
 
 /**
  * INDEPENDENT oracle for the visible-face count.
@@ -1065,10 +1065,18 @@ describe("greedy meshing oracle", () => {
 const lightBrightness = (level: number): number =>
   LIGHT_MIN + ((1 - LIGHT_MIN) * level) / MAX_LIGHT;
 
-// Sample a light field with the mesher's edge convention: out of bounds (the world
-// border, which the face looks out through) reads as full light.
-const sampleLight = (L: Uint8Array, w: World, x: number, y: number, z: number): number =>
-  w.inBounds(x, y, z) ? L[w.index(x, y, z)] : MAX_LIGHT;
+// Sample an RGB light field with the mesher's edge convention: out of bounds (the world
+// border, which the face looks out through) reads as full light on every channel.
+const sampleLightRGB = (
+  L: RGBLight,
+  w: World,
+  x: number,
+  y: number,
+  z: number,
+): [number, number, number] =>
+  w.inBounds(x, y, z)
+    ? [L.r[w.index(x, y, z)], L.g[w.index(x, y, z)], L.b[w.index(x, y, z)]]
+    : [MAX_LIGHT, MAX_LIGHT, MAX_LIGHT];
 
 describe("mesher light-aware shading oracle", () => {
   // TRUTH TABLE: lightFactor against hand-computed values (0.12 floor, 1.0 at full
@@ -1088,7 +1096,8 @@ describe("mesher light-aware shading oracle", () => {
     const w = new World(4, 4, 4);
     const palette = [Block.Air, Block.Stone, Block.Grass, Block.Glass];
     for (let i = 0; i < w.volume; i++) w.data[i] = palette[i % palette.length];
-    const full = new Uint8Array(w.volume).fill(MAX_LIGHT);
+    const fullCh = (): Uint8Array => new Uint8Array(w.volume).fill(MAX_LIGHT);
+    const full: RGBLight = { r: fullCh(), g: fullCh(), b: fullCh() }; // white, every channel full
     expect(Array.from(buildMesh(w, full).colors)).toEqual(Array.from(buildMesh(w).colors));
     expect(Array.from(buildGreedyMesh(w, full).colors)).toEqual(
       Array.from(buildGreedyMesh(w).colors),
@@ -1104,7 +1113,7 @@ describe("mesher light-aware shading oracle", () => {
       fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
         const w = new World(4, 4, 4);
         cells.forEach((b, i) => (w.data[i] = b));
-        const L = computeLight(w);
+        const L = computeLightRGB(w);
         const m = buildMesh(w, L);
         for (let f = 0; f < m.faceCount; f++) {
           const no = f * 4 * 3;
@@ -1121,7 +1130,8 @@ describe("mesher light-aware shading oracle", () => {
             Math.floor((m.positions[p0 + 2] + m.positions[p0 + 8]) / 2 - nz * 0.5),
           ];
           const base = [cell[0] + nx, cell[1] + ny, cell[2] + nz]; // open neighbour cell
-          const lf = lightBrightness(sampleLight(L, w, base[0], base[1], base[2]));
+          const [lr, lg, lb] = sampleLightRGB(L, w, base[0], base[1], base[2]);
+          const lf = [lightBrightness(lr), lightBrightness(lg), lightBrightness(lb)];
           const occ = (o: number[]) =>
             isOpaque(w.get(base[0] + o[0], base[1] + o[1], base[2] + o[2])) ? 1 : 0;
           for (let k = 0; k < 4; k++) {
@@ -1139,10 +1149,9 @@ describe("mesher light-aware shading oracle", () => {
             const s2 = occ(sv);
             const cc = occ([su[0] + sv[0], su[1] + sv[1], su[2] + sv[2]]);
             const level = s1 && s2 ? 0 : 3 - (s1 + s2 + cc);
-            const expected = FACE_SHADE[fi] * aoBrightness(level) * lf;
-            expect(m.colors[p]).toBeCloseTo(expected, 6);
-            expect(m.colors[p]).toBe(m.colors[p + 1]); // greyscale
-            expect(m.colors[p + 1]).toBe(m.colors[p + 2]);
+            const shadeBase = FACE_SHADE[fi] * aoBrightness(level);
+            // Each channel folds in that channel's light at the open cell, independently.
+            for (let c = 0; c < 3; c++) expect(m.colors[p + c]).toBeCloseTo(shadeBase * lf[c], 6);
           }
         }
       }),
@@ -1159,9 +1168,10 @@ describe("mesher light-aware shading oracle", () => {
       fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
         const w = new World(4, 4, 4);
         cells.forEach((b, i) => (w.data[i] = b));
-        const dark = new Uint8Array(w.volume); // all 0
-        const real = computeLight(w);
-        const bright = new Uint8Array(w.volume).fill(MAX_LIGHT);
+        const ch = (fillv: number): Uint8Array => new Uint8Array(w.volume).fill(fillv);
+        const dark: RGBLight = { r: ch(0), g: ch(0), b: ch(0) };
+        const real = computeLightRGB(w);
+        const bright: RGBLight = { r: ch(MAX_LIGHT), g: ch(MAX_LIGHT), b: ch(MAX_LIGHT) };
         const md = buildMesh(w, dark).colors;
         const mr = buildMesh(w, real).colors;
         const mb = buildMesh(w, bright).colors;
@@ -1198,11 +1208,11 @@ describe("mesher light-aware shading oracle", () => {
       }
       return -1;
     };
-    const before = topFaceShade(buildMesh(w, computeLight(w)));
+    const before = topFaceShade(buildMesh(w, computeLightRGB(w)));
     expect(before).toBeGreaterThan(0);
     w.set(6, 1, 2, Block.Glowstone); // in the gap, 3 cells away, doesn't cull the face
-    const after = topFaceShade(buildMesh(w, computeLight(w)));
-    expect(after).toBeGreaterThan(before); // the face is now lit
+    const after = topFaceShade(buildMesh(w, computeLightRGB(w)));
+    expect(after).toBeGreaterThan(before); // the face's red channel is now lit by the warm glow
   });
 
   // CENSUS: light-aware greedy meshing still covers exactly the visible unit faces —
@@ -1213,7 +1223,7 @@ describe("mesher light-aware shading oracle", () => {
       fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
         const w = new World(4, 4, 4);
         cells.forEach((b, i) => (w.data[i] = b));
-        expect(unitFacesOf(buildGreedyMesh(w, computeLight(w))).sort()).toEqual(
+        expect(unitFacesOf(buildGreedyMesh(w, computeLightRGB(w))).sort()).toEqual(
           expectedUnitFaces(w).sort(),
         );
       }),
@@ -1230,7 +1240,7 @@ describe("mesher light-aware shading oracle", () => {
       fc.property(fc.array(id, { minLength: 64, maxLength: 64 }), (cells) => {
         const w = new World(4, 4, 4);
         cells.forEach((b, i) => (w.data[i] = b));
-        const L = computeLight(w);
+        const L = computeLightRGB(w);
         const m = buildGreedyMesh(w, L);
         for (let f = 0; f < m.faceCount; f++) {
           const n = quadNormal(m, f);
@@ -1242,9 +1252,10 @@ describe("mesher light-aware shading oracle", () => {
           const wq = Math.max(...cs.map((c) => c[u])) - umin;
           const hq = Math.max(...cs.map((c) => c[v])) - vmin;
           const planeA = cs[0][a];
-          const quadShades = [0, 1, 2, 3]
-            .map((k) => m.colors[(f * 4 + k) * 3])
-            .sort((p, q) => p - q);
+          // The four corner colours per channel (sorted), to compare against each covered cell.
+          const quadShades = [0, 1, 2].map((c) =>
+            [0, 1, 2, 3].map((k) => m.colors[(f * 4 + k) * 3 + c]).sort((p, q) => p - q),
+          );
           for (let i = 0; i < wq; i++)
             for (let j = 0; j < hq; j++) {
               const cell = [0, 0, 0];
@@ -1252,24 +1263,29 @@ describe("mesher light-aware shading oracle", () => {
               cell[u] = umin + i;
               cell[v] = vmin + j;
               const base = [cell[0] + n[0], cell[1] + n[1], cell[2] + n[2]];
-              const lf = lightBrightness(sampleLight(L, w, base[0], base[1], base[2]));
+              const lf = sampleLightRGB(L, w, base[0], base[1], base[2]).map(lightBrightness);
               const occ = (ou: number, ov: number): number => {
                 const o = [0, 0, 0];
                 o[u] = ou;
                 o[v] = ov;
                 return isOpaque(w.get(base[0] + o[0], base[1] + o[1], base[2] + o[2])) ? 1 : 0;
               };
-              const cellShades: number[] = [];
+              const aoShades: number[] = [];
               for (const su of [1, -1])
                 for (const sv of [1, -1]) {
                   const s1 = occ(su, 0),
                     s2 = occ(0, sv),
                     cc = occ(su, sv);
                   const level = s1 && s2 ? 0 : 3 - (s1 + s2 + cc);
-                  cellShades.push(FACE_SHADE[d] * aoBrightness(level) * lf);
+                  aoShades.push(FACE_SHADE[d] * aoBrightness(level));
                 }
-              cellShades.sort((p, q) => p - q);
-              for (let q = 0; q < 4; q++) expect(quadShades[q]).toBeCloseTo(cellShades[q], 6);
+              // Per channel: the cell's four shade×AO values dimmed by that channel's light
+              // must match the quad's four corner colours — so a merge can't span a seam in
+              // ANY channel (else some covered cell's colour would disagree on that channel).
+              for (let c = 0; c < 3; c++) {
+                const cellShades = aoShades.map((s) => s * lf[c]).sort((p, q) => p - q);
+                for (let q = 0; q < 4; q++) expect(quadShades[c][q]).toBeCloseTo(cellShades[q], 6);
+              }
             }
         }
       }),

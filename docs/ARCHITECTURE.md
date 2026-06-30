@@ -72,14 +72,13 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   shadow). Block-light seeds from emissive blocks (`emission > 0`); skylight seeds every cell open
   to the sky at full brightness, so a vertical drop through open air never attenuates. Both are a
   max-fixpoint, so order-independent; each checked against an independent relaxation.
-  `computeLight` combines them (cell-wise `max`) into the field the mesher dims faces by.
-  `updateBlockLight` / `updateSkyLight` / `updateLight` apply a single edit **incrementally**
-  (two-pass remove/add; skylight re-seeds the open column below the edit) and return the exact
-  changed-cell set; `ChunkedTerrain` uses it to remesh only the affected chunks. Pinned by a
-  differential oracle (incremental == from-scratch after every edit of a random sequence).
-  `computeBlockLightRGB` / `computeLightRGB` generalise block/combined light to 3 channels (emitters
-  carry an `emissionColor` tint, flooded per channel) — a strict extension (a white emitter reduces
-  to the scalar field); the renderer keeps using the scalar field until coloured meshing lands.
+  `computeLight` combines them (cell-wise `max`); `computeBlockLightRGB` / `computeLightRGB`
+  generalise block/combined light to **3 colour channels** (emitters carry an `emissionColor` tint,
+  flooded per channel; skylight is white) — a strict extension (a white emitter reduces to the
+  scalar field). The renderer dims faces by the RGB field. Pinned per channel by an independent
+  relaxation, the red-channel reduction to scalar, and a closed-form decay golden. (`ChunkedTerrain`
+  recomputes the RGB field per edit and diffs it for the changed cells — ~6 ms, see #86 on why
+  incremental wasn't kept.)
 - **`water.ts`** — `computeWater(world)`: water flow as a deterministic flood fill (the Minecraft
   Classic model; a derived 0/1 field, not stored blocks). `Block.Water` cells are sources; water
   floods into non-solid cells sideways and downward, never up or into solids — so it fills reachable
