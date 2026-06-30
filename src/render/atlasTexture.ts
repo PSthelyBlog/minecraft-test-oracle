@@ -23,7 +23,7 @@ import {
   RepeatWrapping,
   SRGBColorSpace,
 } from "three";
-import { TILE_COLOR, TILE_COUNT, type TileIndex } from "../core/atlas";
+import { Tile, TILE_COLOR, TILE_COUNT, type TileIndex } from "../core/atlas";
 
 /** Deterministic value in [0,1) from integer coords — a hashed substitute for noise. */
 function hash01(x: number, y: number, t: number): number {
@@ -33,10 +33,15 @@ function hash01(x: number, y: number, t: number): number {
   return (h & 0xffff) / 0x10000;
 }
 
-/** Brightness multiplier for one texel of a tile: subtle grain + darker edge bevel. */
+/**
+ * Brightness multiplier for one texel of a tile: subtle grain + a darker 1px edge
+ * bevel that gives solid blocks their cube definition. Water is a continuous fluid
+ * surface, not a stack of blocks, so it skips the bevel — otherwise every cell's edge
+ * draws a dark border and a flat water surface reads as a checked grid of cubes.
+ */
 function patternFactor(tx: number, ty: number, tile: number, n: number): number {
   const onEdge = tx === 0 || ty === 0 || tx === n - 1 || ty === n - 1;
-  const bevel = onEdge ? 0.8 : 1.0;
+  const bevel = onEdge && tile !== Tile.Water ? 0.8 : 1.0;
   const grain = 0.86 + 0.14 * hash01(tx, ty, tile);
   return bevel * grain;
 }
