@@ -7,26 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Incremental water updates** (`updateWater`): after a single block edit the water
-  field is now maintained in place with a two-pass removal/add flood — mirroring the
-  incremental light updater — instead of recomputing `computeWater` over the whole world.
-  Because flow is directional (fall is downward-only, spread is horizontal `−1`, never
-  up), the removal pass walks down + horizontal-dependent to clear and collects above +
-  horizontal-independent + below-source cells as re-flood borders. `ChunkedTerrain` now
-  uses it, dropping the per-edit full recompute. Pinned by a **differential** oracle
-  (incremental == from-scratch `computeWater` after every edit of random edit-sequences)
-  and a **changed-set census**. (#79)
-
 ### Changed
 
-- **Partial-height water surfaces**: the water pass now tops each cell out at its fill
-  height `y + level/MAX_WATER` (with cropped side tiles) instead of a full unit cube, so a
-  spreading sheet reads shallower than a deep source. A submerged cell (water directly
-  above) still renders full height, so a column has no internal step (surface-cell-only).
-  Pinned by a new **height census** (every face's top at `y + level/MAX`) and a **UV
-  census** (side tiles crop to height; caps keep the full tile). (#78)
+- **Water is now a flood fill (the Minecraft Classic model).** `computeWater` reworked
+  from a finite-level cellular automaton to a binary flood: a non-solid cell is water iff
+  reachable from a `Block.Water` source by sideways/downward steps, never up. Water now
+  fills reachable gaps and lies flat — realistic and Classic-authentic — instead of
+  decaying with distance from a source like a light field (and a single source no longer
+  dies 7 cells out). Rendered as flat full cubes again. Pinned by an independent
+  reachability relaxation, the fixpoint condition, an inflow-witness/never-rises invariant,
+  a damming metamorphic, and gap-filling/waterfall/seeded-terrain goldens. This supersedes
+  the interim finite-level water work (partial-height surfaces and incremental
+  `updateWater`) landed earlier this cycle. (#85)
 
 ## [0.4.0] - 2026-06-29
 
