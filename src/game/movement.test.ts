@@ -20,7 +20,7 @@ const TUNING: MovementTuning = {
   buoyancy: 0.8,
   swimUp: 4,
 };
-const NO_INPUT: MovementInput = { forward: 0, strafe: 0, up: 0, jump: false };
+const NO_INPUT: MovementInput = { forward: 0, strafe: 0, up: 0, jump: false, sneak: false };
 
 // All movement test worlds are 16×24×16; this all-dry water field keeps submersion 0, so
 // these dry-movement oracles exercise the strict-extension (s = 0) path unchanged.
@@ -228,7 +228,14 @@ describe("movement oracle", () => {
     const s = player({ pos: [8, 10, 8] as Vec3, vel: [1, 2, 3] });
     const frozenPos = [...s.pos];
     const frozenVel = [...s.vel];
-    stepMovement(floorWorld(), DRY, s, { forward: 1, strafe: 1, up: 1, jump: true }, 0.016, TUNING);
+    stepMovement(
+      floorWorld(),
+      DRY,
+      s,
+      { forward: 1, strafe: 1, up: 1, jump: true, sneak: true },
+      0.016,
+      TUNING,
+    );
     expect([...s.pos]).toEqual(frozenPos);
     expect([...s.vel]).toEqual(frozenVel);
   });
@@ -284,6 +291,28 @@ describe("swim physics (submersion-driven buoyancy & drag)", () => {
     // dry + midair + jump must NOT launch (gating still holds out of water)
     const dryMid = stepMovement(W, DRY, player({ pos: [8, 10, 8], onGround: false }), { ...NO_INPUT, jump: true }, 0.016, TUNING); // prettier-ignore
     expect(dryMid.vel[1]).toBeLessThanOrEqual(0);
+  });
+
+  // SWIM-DOWN (mirror of swim-up): holding sneak while submerged strokes downward at
+  // −swimUp and the player descends — the exact negation of the jump stroke.
+  test("swim stroke: sneak while submerged dives, the mirror of jump", () => {
+    const start = player({ pos: [8, 10, 8], onGround: false });
+    const down = stepMovement(W, fullWater(), start, { ...NO_INPUT, sneak: true }, 0.016, TUNING);
+    const up = stepMovement(W, fullWater(), start, { ...NO_INPUT, jump: true }, 0.016, TUNING);
+    expect(down.vel[1]).toBe(-TUNING.swimUp); // downward stroke
+    expect(down.vel[1]).toBe(-up.vel[1]); // exact negation of the up stroke
+    expect(down.pos[1]).toBeLessThan(10); // actually sank
+  });
+
+  // STRICT EXTENSION: sneak does nothing on land — a dry step with sneak held is identical
+  // to one without (pure gravity), so the new input can't disturb normal movement.
+  test("sneak has no effect out of water", () => {
+    const dt = 0.02;
+    const start = player({ pos: [8, 12, 8] });
+    const withSneak = stepMovement(W, DRY, start, { ...NO_INPUT, sneak: true }, dt, TUNING);
+    const without = stepMovement(W, DRY, start, NO_INPUT, dt, TUNING);
+    expect(withSneak.vel[1]).toBe(without.vel[1]);
+    expect(withSneak.vel[1]).toBeCloseTo(TUNING.gravity * dt, 9); // pure gravity
   });
 
   // METAMORPHIC (monotonic): the deeper the submersion, the less negative a falling
