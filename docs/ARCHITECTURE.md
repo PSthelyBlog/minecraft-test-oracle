@@ -77,6 +77,9 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   (two-pass remove/add; skylight re-seeds the open column below the edit) and return the exact
   changed-cell set; `ChunkedTerrain` uses it to remesh only the affected chunks. Pinned by a
   differential oracle (incremental == from-scratch after every edit of a random sequence).
+  `computeBlockLightRGB` / `computeLightRGB` generalise block/combined light to 3 channels (emitters
+  carry an `emissionColor` tint, flooded per channel) — a strict extension (a white emitter reduces
+  to the scalar field); the renderer keeps using the scalar field until coloured meshing lands.
 - **`water.ts`** — `computeWater(world)`: water flow as a deterministic flood fill (the Minecraft
   Classic model; a derived 0/1 field, not stored blocks). `Block.Water` cells are sources; water
   floods into non-solid cells sideways and downward, never up or into solids — so it fills reachable

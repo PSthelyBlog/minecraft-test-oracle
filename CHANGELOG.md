@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Coloured (RGB) light** (`core/light.ts`): emitters carry an optional `emissionColor`
+  tint (Glowstone now glows warm); `computeBlockLightRGB` floods the three channels
+  independently, seeding each at `round(emission · tint)`, and `computeLightRGB` combines
+  coloured block-light with white skylight as a per-channel max. A strict extension — a
+  white emitter reproduces the scalar field on every channel, and the scalar
+  `computeBlockLight`/`computeLight` are unchanged (the renderer still uses them until the
+  meshing pass lands). Pinned by a per-channel independent relaxation, a red-channel
+  byte-for-byte reduction to scalar block-light, a per-channel-max census, an `r ≥ g ≥ b`
+  warm-ordering invariant, and a closed-form per-channel decay golden. (#80)
+
 ### Changed
 
 - **Water is now a flood fill (the Minecraft Classic model).** `computeWater` reworked

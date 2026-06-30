@@ -23,7 +23,7 @@
  */
 
 import type { World } from "./world";
-import { isOpaque, emissionOf } from "./blocks";
+import { isOpaque, emissionOf, emissionColorOf } from "./blocks";
 
 /** Maximum light level — a source at full brightness. */
 export const MAX_LIGHT = 15;
@@ -153,6 +153,84 @@ export function computeSkyLight(world: World): Uint8Array {
 
   floodLight(world, light, qx, qy, qz);
   return light;
+}
+
+// ---------------------------------------------------------------------------
+// Coloured (RGB) light — a strict extension of the scalar fields above. Each emitter
+// carries an `emissionColor` tint; block-light floods the three channels INDEPENDENTLY,
+// seeding channel c at `round(emission · tint[c])` and reusing the same `floodLight` BFS.
+// Skylight is WHITE (uncoloured), so its scalar level contributes equally to every
+// channel; `computeLightRGB` combines block + sky with the same cell-wise max as the
+// scalar `computeLight`, per channel.
+//
+// Strict extension: an emitter with the default white tint seeds every channel at its
+// full `emission`, so each channel is byte-identical to scalar `computeBlockLight`.
+// (Glowstone's tint has red = 1.0, so the RED channel reproduces the scalar field exactly.)
+// ---------------------------------------------------------------------------
+
+/** Per-channel light fields, each a flat array in `world.index` order (like the scalar fields). */
+export interface RGBLight {
+  readonly r: Uint8Array;
+  readonly g: Uint8Array;
+  readonly b: Uint8Array;
+}
+
+/**
+ * Block-light for one colour channel: seed every emitter at `round(emission · tint[c])`
+ * and run the shared `floodLight` BFS. A white emitter seeds channel c at its full
+ * `emission`, so the channel matches scalar `computeBlockLight`.
+ */
+function computeBlockLightChannel(world: World, c: number): Uint8Array {
+  const { sizeX, sizeY, sizeZ } = world;
+  const light = new Uint8Array(world.volume);
+  const qx: number[] = [];
+  const qy: number[] = [];
+  const qz: number[] = [];
+  for (let y = 0; y < sizeY; y++) {
+    for (let z = 0; z < sizeZ; z++) {
+      for (let x = 0; x < sizeX; x++) {
+        const id = world.get(x, y, z);
+        const e = emissionOf(id);
+        if (e === 0) continue;
+        const seed = Math.round(e * emissionColorOf(id)[c]);
+        if (seed > 0) {
+          light[world.index(x, y, z)] = seed;
+          qx.push(x);
+          qy.push(y);
+          qz.push(z);
+        }
+      }
+    }
+  }
+  floodLight(world, light, qx, qy, qz);
+  return light;
+}
+
+/** Per-voxel block-light per channel (`computeBlockLight` generalised to RGB tints). */
+export function computeBlockLightRGB(world: World): RGBLight {
+  return {
+    r: computeBlockLightChannel(world, 0),
+    g: computeBlockLightChannel(world, 1),
+    b: computeBlockLightChannel(world, 2),
+  };
+}
+
+/**
+ * Per-voxel combined light per channel: the cell-wise max of coloured block-light and
+ * WHITE skylight. Skylight has no colour, so its scalar level applies to all channels.
+ */
+export function computeLightRGB(world: World): RGBLight {
+  const block = computeBlockLightRGB(world);
+  const sky = computeSkyLight(world);
+  const r = new Uint8Array(world.volume);
+  const g = new Uint8Array(world.volume);
+  const b = new Uint8Array(world.volume);
+  for (let i = 0; i < r.length; i++) {
+    r[i] = block.r[i] > sky[i] ? block.r[i] : sky[i];
+    g[i] = block.g[i] > sky[i] ? block.g[i] : sky[i];
+    b[i] = block.b[i] > sky[i] ? block.b[i] : sky[i];
+  }
+  return { r, g, b };
 }
 
 // ---------------------------------------------------------------------------

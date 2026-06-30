@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 148 oracle tests once (Vitest)
+npm test            # run all 153 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -132,8 +132,8 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)                   |
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
 | `water.ts`       |           ~86% | flood fill (reachability/relaxation/inflow-witness); all 6 survivors equivalent (below) |
-| `light.ts`       |           ~84% | block/sky/combined + incremental updates; all 30 survivors equivalent (classes below)   |
-| **overall**      |     **~94.1%** | 148 tests across 18 files                                                               |
+| `light.ts`       |           ~84% | block/sky/combined + incremental + RGB; all 39 survivors equivalent (classes below)     |
+| **overall**      |     **~93.6%** | 153 tests across 18 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -236,6 +236,19 @@ document these, not to chase a vanity number. The ones left here:
   - _the rectangle-height loop bound_ (`sv + h < V` → `<=` / `sv - h`): redundant with the inner
     row scan, which breaks as soon as a cell's key differs — and an out-of-slice read is
     `undefined ≠ key`, so it stops at the same `h` (the mesher/persistence loop-bound class).
+- **`light.ts` coloured-light survivors (9, all equivalent).** `computeBlockLightRGB` floods each
+  channel with the shared `floodLight`, seeded at `round(emission · tint[c])`, and `computeLightRGB`
+  is the per-channel cell-wise max with white skylight — so the new survivors are the SAME classes as
+  the scalar block/combined light, now per channel: the per-channel **seed loop bounds** (`y/z/x <
+size` → `<=`) and the combine **loop bound** (`i < r.length` → `<=`) read one cell out of bounds, a
+  no-op (loop-bound class); the **zero-seed guards** (`e === 0 ? continue` → `false`, and `seed > 0` →
+  `true` / `>= 0`) only ever seed a cell at level `0` and queue it, which `floodLight` propagates as
+  `0 − 1` into nothing — a no-op (the emitter-seed-guard class); and the three **per-channel max
+  selects** (`block.{r,g,b}[i] > sky[i]` → `>=`) differ only on a tie, where both branches return the
+  same value (the max-select-tie class, exactly as scalar `computeLight`). Pinned by the per-channel
+  independent relaxation, the red-channel byte-for-byte reduction to scalar block-light, the
+  per-channel-max census, the warm `r ≥ g ≥ b` ordering invariant, and a closed-form per-channel
+  Manhattan-decay golden.
 - **`light.ts` survivors (30, all equivalent).** Block-light and skylight are the same BFS
   flood (a shared `floodLight`) whose result is a max-fixpoint, so several mutation points are
   provably output-preserving — the same classes seen above, here intrinsic to flood-fill. The

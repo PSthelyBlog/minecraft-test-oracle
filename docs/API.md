@@ -242,6 +242,10 @@ computeBlockLight(world: World): Uint8Array   // per-voxel block-light 0..15, in
 computeSkyLight(world: World): Uint8Array     // per-voxel skylight  0..15, in world.index order
 computeLight(world: World): Uint8Array        // per-voxel max(block, sky) — the field the mesher uses
 
+// Coloured (RGB) light — a strict extension; { r, g, b } each a Uint8Array like above.
+computeBlockLightRGB(world: World): RGBLight  // per-channel block-light, seeded round(emission·tint)
+computeLightRGB(world: World): RGBLight        // per-channel max(blockRGB, white skylight)
+
 // Incremental updates after a single edit at (x,y,z) (world already mutated). Mutate the
 // field(s) in place and return the flat indices whose value changed.
 updateBlockLight(world, light, x, y, z): number[]
@@ -262,6 +266,16 @@ everything beneath it.
 
 **Combined.** `computeLight` is the cell-wise `max(blockLight, skyLight)` — a cell is as lit as
 the brighter of the sky or a nearby emitter reaches it. This is the field the mesher dims faces by.
+
+**Coloured (RGB).** Emitters carry an optional `emissionColor` tint (white if unset).
+`computeBlockLightRGB` floods the three channels independently, seeding channel `c` at
+`round(emission · tint[c])` with the same BFS; `computeLightRGB` is the per-channel
+`max(blockRGB, skyLight)` with white (uncoloured) skylight. A strict extension: a white emitter
+seeds every channel at its full emission, so each channel is byte-identical to scalar
+`computeBlockLight` (Glowstone's red tint is `1.0`, so its red channel reproduces the scalar field
+exactly). The scalar functions are unchanged; the renderer keeps using them until coloured meshing
+lands. Pinned by a per-channel independent relaxation, the red-channel reduction, a per-channel-max
+census, an `r ≥ g ≥ b` warm-ordering invariant, and a closed-form per-channel decay golden.
 
 **Incremental.** After a single edit, `updateBlockLight` / `updateSkyLight` / `updateLight` mutate
 the existing field(s) in place instead of recomputing the world, using the classic two-pass
