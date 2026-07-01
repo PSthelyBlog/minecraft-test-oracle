@@ -31,7 +31,7 @@ separate workflow that runs on a published **release** or manual dispatch (not o
 See [docs/TESTING.md](docs/TESTING.md).
 
 **Controls:** click to lock the mouse · `WASD` move · mouse look · `Space` jump ·
-`Shift` sneak/descend · left-click break · right-click place · `1–9`/scroll select ·
+`Shift` crouch/descend · left-click break · right-click place · `1–9`/scroll select ·
 `F` fly · `N` new world · `Esc` release mouse.
 
 Edits are **saved to your browser** (localStorage) and restored on reload; `N` starts a fresh
