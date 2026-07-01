@@ -24,10 +24,12 @@ export interface MovementInput {
   up: number; // -1..1 (Space - Shift), only used when flying
   jump: boolean; // Space — jump (on ground) or swim up (submerged)
   crouch: boolean; // Shift — descend: swim down (submerged); no effect on land
+  walk: boolean; // Ctrl — hold to move at the slower, precise walk speed (ground only)
 }
 
 export interface MovementTuning {
-  walk: number;
+  run: number; // default ground speed
+  walk: number; // slower ground speed while Ctrl (input.walk) is held
   fly: number;
   gravity: number; // negative
   jump: number; // positive impulse
@@ -77,7 +79,10 @@ export function stepMovement(
   const s = state.flying ? 0 : submersion(world, water, state.pos, t.half);
   const drag = 1 - t.swimDrag * s;
 
-  const speed = state.flying ? t.fly : t.walk;
+  // Ground speed is the run default, or the slower walk while Ctrl is held. Flying is
+  // unaffected by the walk modifier (it has its own single speed).
+  const ground = input.walk ? t.walk : t.run;
+  const speed = state.flying ? t.fly : ground;
   const vx = mx * speed * drag;
   const vz = mz * speed * drag;
   let vy = state.vel[1];
