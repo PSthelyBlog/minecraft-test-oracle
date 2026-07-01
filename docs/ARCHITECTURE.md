@@ -104,8 +104,10 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
 ### `src/game`
 
 - **`movement.ts`** — `stepMovement`, the pure per-frame player update: input → velocity
-  (gravity, jump-gating, fly, diagonal normalization, and swim buoyancy/drag/stroke from
-  `submersion`) → delegates collision to `moveAndCollide` → returns the next `PlayerState`.
+  (gravity, jump-gating, fly, run/walk speed tier, diagonal normalization, and swim
+  buoyancy/drag/stroke from `submersion`) → delegates collision to `moveAndCollide` → returns the
+  next `PlayerState`. Also `resolveCrouch`: the feet-anchored crouch posture (shrink the AABB from
+  the top; refuse to stand into a ceiling), resolved before the movement step.
 
 ### `src/render` and `src/main.ts`
 

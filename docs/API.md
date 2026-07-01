@@ -433,6 +433,7 @@ interface PlayerState {
   yaw: number; pitch: number;
   onGround: boolean;
   flying: boolean;
+  crouching: boolean;   // in the crouched posture (shorter box + lower eye)
 }
 
 interface MovementInput {
@@ -440,17 +441,19 @@ interface MovementInput {
   strafe: number;    // -1..1  (D - A)
   up: number;        // -1..1  (Space - Shift), only while flying
   jump: boolean;     // Space — jump (grounded) or swim up (submerged)
-  crouch: boolean;   // Shift — descend: swim down (submerged); no effect on land
+  crouch: boolean;   // Shift — crouch posture (not flying) + swim down (submerged)
   walk: boolean;     // Ctrl — hold to move at the slower, precise walk speed (ground only)
 }
 
 interface MovementTuning {
   run: number; walk: number; fly: number; gravity: number; jump: number; half: Vec3;
+  crouchHalfY: number; // crouched AABB half-height (< half[1]); box shrinks from the top
   swimDrag: number;  // velocity keep-fraction damped at full submersion (0..1)
   buoyancy: number;  // gravity cancelled at full submersion (0..1; 1 = neutral)
   swimUp: number;    // upward velocity of a swim stroke
 }
 
+resolveCrouch(world, pos: Vec3, wasCrouching: boolean, wantCrouch: boolean, standHalf: Vec3, crouchHalf: Vec3): { pos: Vec3; half: Vec3; crouching: boolean }
 stepMovement(world: World, water: Uint8Array, state: PlayerState, input: MovementInput, dt: number, t: MovementTuning): PlayerState
 ```
 
@@ -458,17 +461,23 @@ Pure per-frame player update — returns the next state, never mutates `state`. 
 input is normalized so diagonal movement isn't faster than cardinal. Ground speed is `run` by
 default, or the slower `walk` while Ctrl (`input.walk`) is held — flying is unaffected (its own
 `fly` speed). Walking applies gravity and only jumps when `onGround`; flying ignores gravity and
-drives vertical velocity directly from `up`. Collision is delegated to `moveAndCollide`. **Swim:** with submersion `s > 0` (walking),
+drives vertical velocity directly from `up`. Collision is delegated to `moveAndCollide`.
+**Crouch:** holding Shift while not flying enters a crouched posture via `resolveCrouch` — the AABB
+shrinks from the top (feet anchored: box bottom unchanged, head/eye drop), and standing back up is
+refused if the taller box has no head-room (you can't stand into a ceiling). Posture-only: it never
+changes velocity. **Swim:** with submersion `s > 0` (walking),
 buoyancy scales gravity down by `s·buoyancy`, drag damps horizontal + vertical velocity by
 `s·swimDrag`, holding jump strokes upward at `swimUp` and holding crouch strokes downward at
-`−swimUp` — `s = 0` is exactly the dry behaviour (strict extension; crouch does nothing on land).
+`−swimUp` — `s = 0` is exactly the dry behaviour (strict extension).
 
 > Invariants: gravity strictly decreases vertical velocity while airborne; jump fires only
 > when grounded; diagonal speed equals cardinal speed; at `yaw=0` W→−Z and D→+X, at
 > `yaw=π/2` W→−X and D→−Z, with position advancing by `vel*dt`; landing zeroes vertical
 > velocity; the input state is never mutated. **Walk modifier:** the default ground speed is
 > `run`, holding Ctrl scales horizontal speed by exactly `walk/run` (every direction,
-> diagonal-safe), and flying is unaffected. **Swim:** out of water nothing changes; deeper
+> diagonal-safe), and flying is unaffected. **Crouch:** `resolveCrouch` keeps the box bottom
+> (feet) invariant across any toggle and never moves x/z; it only stands up when the standing box
+> is clear of solids (independently re-derived); flying ignores crouch. **Swim:** out of water nothing changes; deeper
 > submersion only ever slows the fall and the swim speed (never speeds up or reverses); a jump
 > stroke rises and a crouch stroke dives (exact negations), even off the ground.
 

@@ -66,7 +66,7 @@ src/core/      pure, dependency-free, oracle-tested logic
   physics.ts     AABB vs voxel-grid collision, resolved per axis
   selfcheck.ts   boot self-check: re-derives cheap invariants and THROWS at startup
 src/game/
-  movement.ts    pure player step: gravity, jump-gating, fly, diagonal normalize
+  movement.ts    pure player step: gravity, jump-gating, fly, run/walk, crouch, diagonal normalize
 src/render/
   chunkGeometry.ts  uploads the mesher's arrays into a Three.js BufferGeometry
   chunkedTerrain.ts grid of per-chunk meshes; an edit rebuilds only affected chunks
