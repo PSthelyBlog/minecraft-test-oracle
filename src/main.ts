@@ -134,7 +134,9 @@ scene.add(highlight);
 // Player
 // ---------------------------------------------------------------------------
 const HALF: Vec3 = [0.3, 0.9, 0.3]; // 0.6 x 1.8 x 0.6 box
+const CROUCH_HALF_Y = 0.75; // crouched box is 1.5 tall (vs 1.8 standing)
 const EYE = 0.72; // eye offset above the box centre
+const CROUCH_EYE = EYE - (HALF[1] - CROUCH_HALF_Y); // eye tracks the lower head when crouched
 const REACH = 6;
 const TUNING: MovementTuning = {
   run: 5.2, // default ground speed
@@ -143,6 +145,7 @@ const TUNING: MovementTuning = {
   gravity: -28,
   jump: 9,
   half: HALF,
+  crouchHalfY: CROUCH_HALF_Y,
   swimDrag: 0.5, // half speed at full submersion
   buoyancy: 0.8, // sink slowly (20% gravity) when fully underwater
   swimUp: 4, // gentle upward stroke holding jump
@@ -156,6 +159,7 @@ let player: PlayerState = {
   pitch: 0,
   onGround: false,
   flying: false,
+  crouching: false,
 };
 
 let selected = 0; // index into HOTBAR
@@ -223,7 +227,12 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 // Block interaction
 // ---------------------------------------------------------------------------
 function eye(): Vec3 {
-  return [player.pos[0], player.pos[1] + EYE, player.pos[2]];
+  return [player.pos[0], player.pos[1] + (player.crouching ? CROUCH_EYE : EYE), player.pos[2]];
+}
+
+// The player's current AABB half-extents — shorter while crouched.
+function currentHalf(): Vec3 {
+  return player.crouching ? [HALF[0], CROUCH_HALF_Y, HALF[2]] : HALF;
 }
 
 function pickBlock() {
@@ -245,7 +254,7 @@ function placeBlock(p: Vec3): void {
   if (!world.inBounds(x, y, z) || world.get(x, y, z) !== Block.Air) return;
   // Don't entomb the player: refuse if the new block would overlap their box.
   world.set(x, y, z, HOTBAR[selected]);
-  if (boxIntersectsSolid(world, player.pos, HALF)) {
+  if (boxIntersectsSolid(world, player.pos, currentHalf())) {
     world.set(x, y, z, Block.Air); // undo
     return;
   }

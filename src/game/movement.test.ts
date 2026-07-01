@@ -2,8 +2,10 @@ import { describe, test, expect } from "vitest";
 import fc from "fast-check";
 import { World } from "../core/world";
 import { Block } from "../core/blocks";
+import { boxIntersectsSolid } from "../core/physics";
 import {
   stepMovement,
+  resolveCrouch,
   type PlayerState,
   type MovementInput,
   type MovementTuning,
@@ -17,6 +19,7 @@ const TUNING: MovementTuning = {
   gravity: -28,
   jump: 9,
   half: [0.3, 0.9, 0.3],
+  crouchHalfY: 0.75, // 1.5 tall crouched (vs 1.8 standing)
   swimDrag: 0.5,
   buoyancy: 0.8,
   swimUp: 4,
@@ -59,6 +62,7 @@ function player(over: Partial<PlayerState> = {}): PlayerState {
     pitch: 0,
     onGround: false,
     flying: false,
+    crouching: false,
     ...over,
   };
 }
@@ -383,15 +387,20 @@ describe("swim physics (submersion-driven buoyancy & drag)", () => {
     expect(down.pos[1]).toBeLessThan(10); // actually sank
   });
 
-  // STRICT EXTENSION: crouch does nothing on land — a dry step with crouch held is identical
-  // to one without (pure gravity), so the new input can't disturb normal movement.
-  test("crouch has no effect out of water", () => {
+  // POSTURE-ONLY: crouch changes the box, never the velocity (Ctrl owns "slow"). A dry step
+  // with crouch held has identical velocity to one without, but enters the crouched posture
+  // and drops the centre by exactly (standHalfY − crouchHalfY) — feet anchored.
+  test("crouch is posture-only: lowers the box without changing velocity", () => {
     const dt = 0.02;
-    const start = player({ pos: [8, 12, 8] });
+    const start = player({ pos: [8, 12, 8] }); // standing, midair
     const withCrouch = stepMovement(W, DRY, start, { ...NO_INPUT, crouch: true }, dt, TUNING);
     const without = stepMovement(W, DRY, start, NO_INPUT, dt, TUNING);
-    expect(withCrouch.vel[1]).toBe(without.vel[1]);
-    expect(withCrouch.vel[1]).toBeCloseTo(TUNING.gravity * dt, 9); // pure gravity
+    expect(withCrouch.vel).toEqual(without.vel); // velocity untouched
+    expect(withCrouch.vel[1]).toBeCloseTo(TUNING.gravity * dt, 9); // pure gravity either way
+    expect(withCrouch.crouching).toBe(true);
+    expect(without.crouching).toBe(false);
+    // both fell by the same vy·dt, so the residual gap is exactly the crouch centre drop
+    expect(without.pos[1] - withCrouch.pos[1]).toBeCloseTo(TUNING.half[1] - TUNING.crouchHalfY, 9);
   });
 
   // METAMORPHIC (monotonic): the deeper the submersion, the less negative a falling
@@ -427,5 +436,104 @@ describe("swim physics (submersion-driven buoyancy & drag)", () => {
       ),
       { numRuns: 200 },
     );
+  });
+});
+
+describe("crouch posture (resolveCrouch)", () => {
+  const STAND_HALF: Vec3 = TUNING.half;
+  const CROUCH_HALF: Vec3 = [TUNING.half[0], TUNING.crouchHalfY, TUNING.half[2]];
+  const dHalf = STAND_HALF[1] - TUNING.crouchHalfY; // centre drop / rise on a toggle (0.15)
+  const bottom = (pos: Vec3, half: Vec3) => pos[1] - half[1]; // the anchored feet line
+
+  // FEET-ANCHOR (crouch down): standing → crouch shrinks the box from the TOP. The box
+  // bottom is unchanged, the centre drops by dHalf, and the head drops by 2·dHalf.
+  test("crouch down keeps the feet, drops the head", () => {
+    const w = floorWorld();
+    const pos: Vec3 = [8, 4.9, 8]; // standing on the floor: feet at 4.0
+    const r = resolveCrouch(w, pos, false, true, STAND_HALF, CROUCH_HALF);
+    expect(r.crouching).toBe(true);
+    expect(r.half).toEqual(CROUCH_HALF);
+    expect(bottom(r.pos, r.half)).toBeCloseTo(bottom(pos, STAND_HALF), 9); // feet fixed
+    expect(pos[1] - r.pos[1]).toBeCloseTo(dHalf, 9); // centre dropped by dHalf
+    const headBefore = pos[1] + STAND_HALF[1];
+    const headAfter = r.pos[1] + r.half[1];
+    expect(headBefore - headAfter).toBeCloseTo(2 * dHalf, 9); // head dropped by 2·dHalf
+    expect([r.pos[0], r.pos[2]]).toEqual([pos[0], pos[2]]); // x/z untouched
+  });
+
+  // NO-OP branches: no transition leaves position + half exactly as they were.
+  test("no transition keeps the current posture", () => {
+    const w = floorWorld();
+    const standing: Vec3 = [8, 4.9, 8];
+    const stay = resolveCrouch(w, standing, false, false, STAND_HALF, CROUCH_HALF);
+    expect(stay).toEqual({ pos: standing, half: STAND_HALF, crouching: false });
+
+    const crouched: Vec3 = [8, 4.75, 8];
+    const held = resolveCrouch(w, crouched, true, true, STAND_HALF, CROUCH_HALF);
+    expect(held).toEqual({ pos: crouched, half: CROUCH_HALF, crouching: true });
+  });
+
+  // STAND UP (clear headroom): crouched → stand grows the box UP from the same feet.
+  test("stand up with headroom raises the head, feet fixed", () => {
+    const w = floorWorld(); // open air well above the floor
+    const crouched: Vec3 = [8, 8.75, 8]; // feet at 8.0
+    const r = resolveCrouch(w, crouched, true, false, STAND_HALF, CROUCH_HALF);
+    expect(r.crouching).toBe(false);
+    expect(r.half).toEqual(STAND_HALF);
+    expect(bottom(r.pos, r.half)).toBeCloseTo(bottom(crouched, CROUCH_HALF), 9); // feet fixed
+    expect(r.pos[1] - crouched[1]).toBeCloseTo(dHalf, 9); // centre rose by dHalf
+  });
+
+  // STAND UP (blocked): a ceiling within the standing head-room but above the crouched head
+  // must keep you crouched — standing would clip you into the block. Independently re-derived:
+  // the crouched box is clear of the ceiling, the standing box is not.
+  test("stand up is refused when a ceiling has no head-room", () => {
+    const w = new World(16, 24, 16);
+    w.set(8, 6, 8, Block.Stone); // ceiling occupying cell y∈[6,7]
+    const crouched: Vec3 = [8, 5.25, 8]; // feet at 4.5; crouched head 6.0 (clears), standing head 6.3 (hits)
+    const standCenter: Vec3 = [8, 4.5 + STAND_HALF[1], 8]; // where standing would put the centre
+    // independent witness: crouched fits, standing does not
+    expect(boxIntersectsSolid(w, crouched, CROUCH_HALF)).toBe(false);
+    expect(boxIntersectsSolid(w, standCenter, STAND_HALF)).toBe(true);
+    const r = resolveCrouch(w, crouched, true, false, STAND_HALF, CROUCH_HALF);
+    expect(r.crouching).toBe(true); // stayed crouched
+    expect(r).toEqual({ pos: crouched, half: CROUCH_HALF, crouching: true });
+  });
+
+  // FEET-ANCHOR INVARIANT (metamorphic, headline): for ANY world, position, and toggle, the
+  // box bottom (feet) is invariant and x/z never move — the anchor never slips. Re-derives
+  // the feet line from the PRE-state half, independent of which branch resolveCrouch takes.
+  test("box bottom is invariant across every transition", () => {
+    const w = floorWorld();
+    w.set(8, 8, 8, Block.Stone); // a mid-air obstacle so the stand-up-blocked branch is exercised
+    fc.assert(
+      fc.property(
+        fc.double({ min: 3, max: 12, noNaN: true }), // pos.y
+        fc.boolean(), // wasCrouching
+        fc.boolean(), // wantCrouch
+        (y, was, want) => {
+          const prevHalfY = was ? CROUCH_HALF[1] : STAND_HALF[1];
+          const pos: Vec3 = [8.4, y, 8.4];
+          const r = resolveCrouch(w, pos, was, want, STAND_HALF, CROUCH_HALF);
+          expect(bottom(r.pos, r.half)).toBeCloseTo(pos[1] - prevHalfY, 9); // feet never move
+          expect([r.pos[0], r.pos[2]]).toEqual([pos[0], pos[2]]); // x/z never move
+          expect([STAND_HALF[1], CROUCH_HALF[1]]).toContain(r.half[1]); // half is one of the two
+        },
+      ),
+    );
+  });
+
+  // GATE: flying keeps Shift for descend, so a flying step never enters the crouch posture.
+  test("flying ignores crouch (Shift stays descend)", () => {
+    const start = player({ pos: [8, 12, 8], flying: true });
+    const step = stepMovement(
+      floorWorld(),
+      DRY,
+      start,
+      { ...NO_INPUT, crouch: true },
+      0.016,
+      TUNING,
+    );
+    expect(step.crouching).toBe(false);
   });
 });
