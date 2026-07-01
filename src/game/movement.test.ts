@@ -19,7 +19,7 @@ const TUNING: MovementTuning = {
   gravity: -28,
   jump: 9,
   half: [0.3, 0.9, 0.3],
-  crouchHalfY: 0.75, // 1.5 tall crouched (vs 1.8 standing)
+  crouchHalfY: 0.5, // 1.0 tall crouched (a cube) vs 1.8 standing
   swimDrag: 0.5,
   buoyancy: 0.8,
   swimUp: 4,
@@ -442,8 +442,9 @@ describe("swim physics (submersion-driven buoyancy & drag)", () => {
 describe("crouch posture (resolveCrouch)", () => {
   const STAND_HALF: Vec3 = TUNING.half;
   const CROUCH_HALF: Vec3 = [TUNING.half[0], TUNING.crouchHalfY, TUNING.half[2]];
-  const dHalf = STAND_HALF[1] - TUNING.crouchHalfY; // centre drop / rise on a toggle (0.15)
+  const dHalf = STAND_HALF[1] - TUNING.crouchHalfY; // centre drop / rise on a toggle (0.4)
   const bottom = (pos: Vec3, half: Vec3) => pos[1] - half[1]; // the anchored feet line
+  const FLOOR_TOP = 4; // floorWorld() is solid for y 0..3, so its top face is at y=4
 
   // FEET-ANCHOR (crouch down): standing → crouch shrinks the box from the TOP. The box
   // bottom is unchanged, the centre drops by dHalf, and the head drops by 2·dHalf.
@@ -484,19 +485,21 @@ describe("crouch posture (resolveCrouch)", () => {
     expect(r.pos[1] - crouched[1]).toBeCloseTo(dHalf, 9); // centre rose by dHalf
   });
 
-  // STAND UP (blocked): a ceiling within the standing head-room but above the crouched head
-  // must keep you crouched — standing would clip you into the block. Independently re-derived:
-  // the crouched box is clear of the ceiling, the standing box is not.
-  test("stand up is refused when a ceiling has no head-room", () => {
-    const w = new World(16, 24, 16);
-    w.set(8, 6, 8, Block.Stone); // ceiling occupying cell y∈[6,7]
-    const crouched: Vec3 = [8, 5.25, 8]; // feet at 4.5; crouched head 6.0 (clears), standing head 6.3 (hits)
-    const standCenter: Vec3 = [8, 4.5 + STAND_HALF[1], 8]; // where standing would put the centre
-    // independent witness: crouched fits, standing does not
+  // REQUIREMENT (cube-height gap) + STAND-UP BLOCKED: the crouched box is exactly one cube
+  // (1.0) tall, so it fits a 1-block-high opening that the standing box cannot — and releasing
+  // crouch under that ceiling refuses to stand. Independently witnessed by boxIntersectsSolid.
+  test("crouched fits a 1-block (cube-height) gap that blocks standing", () => {
+    const w = floorWorld(); // solid floor y0..3 → floor top at y=4
+    for (let z = 0; z < w.sizeZ; z++) for (let x = 0; x < w.sizeX; x++) w.set(x, 5, z, Block.Stone); // ceiling → open gap [4,5]
+    const feet = FLOOR_TOP;
+    const crouched: Vec3 = [8, feet + CROUCH_HALF[1], 8]; // box spans y[4,5]
+    const standing: Vec3 = [8, feet + STAND_HALF[1], 8]; // box spans y[4,5.8]
+    expect(2 * CROUCH_HALF[1]).toBeCloseTo(1, 9); // the crouch is exactly one cube tall
+    // the requirement: the crouched box fits the 1-cube gap; the standing box does not
     expect(boxIntersectsSolid(w, crouched, CROUCH_HALF)).toBe(false);
-    expect(boxIntersectsSolid(w, standCenter, STAND_HALF)).toBe(true);
+    expect(boxIntersectsSolid(w, standing, STAND_HALF)).toBe(true);
+    // and standing up under that ceiling is refused — stay crouched, box unchanged
     const r = resolveCrouch(w, crouched, true, false, STAND_HALF, CROUCH_HALF);
-    expect(r.crouching).toBe(true); // stayed crouched
     expect(r).toEqual({ pos: crouched, half: CROUCH_HALF, crouching: true });
   });
 
