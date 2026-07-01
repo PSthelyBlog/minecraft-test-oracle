@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.6.0] - 2026-07-01
+
+Immersion & movement.
+
+### Added
+
+- **Underwater atmosphere** — a new pure `core/medium.ts` names the medium an observer is
+  immersed in (`Air` / `Water` / `Solid`) as a total, disjoint partition of the world + water
+  field, with a `MEDIA` registry of per-medium fog colour/range and a light multiplier. The shell
+  reads `mediumAtPoint(eye)` each frame, so dipping below the surface swaps to a blue, close,
+  dimmed fog — while above water is byte-identical to before (`Air` reproduces the old
+  `Fog(SKY, 40, 110)`, a strict no-op). Pinned by a partition census, a disjointness invariant, a
+  differential against `physics.submersion` (submersion > 0 ⟺ the box overlaps a `Water` cell), and
+  a golden registry — 100% mutation, 0 survivors. (#95, #96)
+- **Walk speed tier** — default ground movement is now `run`; holding **Ctrl** drops to a slower,
+  precise `walk` for building on edges. Flying is unaffected. Pinned by a metamorphic speed-ratio
+  (`walk == run × walk/run` exactly, every direction), a default-is-run golden, diagonal-safety at
+  both tiers, and a flying-gate. (#100)
+- **Crouch posture** — holding **Shift** (when not flying — grounded, in water, or in the air)
+  shrinks the player's box from the top (feet anchored; head and eye lower) via a new pure
+  `resolveCrouch`, and refuses to stand up when a ceiling has no head-room. The crouched box is
+  `0.8` tall, so you can crouch-walk or crouch-jump through a 1-block gap. Posture-only — it never
+  changes your speed. Pinned by a feet-anchor invariant, stand-up clear/blocked cases (with an
+  independent `boxIntersectsSolid` witness), a box-bottom-invariant metamorphic over random
+  worlds/positions/toggles, and a slide-through-a-1-block-gap functional oracle (feet floated by
+  the settling epsilon, so an exactly-cube crouch fails it). (#103, #105, #107)
+
+### Changed
+
+- **Renamed the `sneak` input to `crouch`.** The Shift key only ever _descends_ (fly/swim down) —
+  "sneak" wrongly implied a stealth mechanic the game doesn't have; "crouch" names the posture
+  without it. Pure terminology, no behaviour change. (#99)
+
 ## [0.5.0] - 2026-06-30
 
 Fluids & light, refined.
