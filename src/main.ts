@@ -19,6 +19,7 @@ import {
   EdgesGeometry,
   LineSegments,
   LineBasicMaterial,
+  SRGBColorSpace,
 } from "three";
 
 import { World } from "./core/world";
@@ -27,6 +28,7 @@ import { generateTerrain, heightAt } from "./core/terrain";
 import { Block, HOTBAR, blockDef } from "./core/blocks";
 import { raycast } from "./core/raycast";
 import { boxIntersectsSolid } from "./core/physics";
+import { mediumAtPoint, mediumDef } from "./core/medium";
 import { directionFromYawPitch, type Vec3 } from "./core/math";
 import { ChunkedTerrain } from "./render/chunkedTerrain";
 import { buildTerrainMaterial, buildWaterMaterial } from "./render/terrainMaterial";
@@ -86,17 +88,27 @@ const renderer = new WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 const scene = new Scene();
-const SKY = new Color(0x8fbcff);
-scene.background = SKY;
-scene.fog = new Fog(SKY, 40, 110);
+// Atmosphere is driven per frame by the medium the eye is in (core/medium): above
+// water it is exactly today's sky fog (a strict no-op); underwater it turns blue,
+// pulls the fog in, and dims the lights. The background + fog colour share one Color,
+// mutated in place (no per-frame allocation). `MediumDef.fogColor` is authored in sRGB
+// (matching the old `new Color(0x8fbcff)`), so it is applied with SRGBColorSpace.
+const atmosphere = new Color(0x8fbcff);
+const fog = new Fog(atmosphere, 40, 110);
+fog.color = atmosphere; // share ONE Color for background + fog (as the old `SKY` did),
+scene.background = atmosphere; //  so a single setRGB per frame recolours both
+scene.fog = fog;
 
 const camera = new PerspectiveCamera(70, 1, 0.1, 1000);
 camera.rotation.order = "YXZ";
 
-scene.add(new HemisphereLight(0xffffff, 0x6b6b6b, 1.05));
+const hemi = new HemisphereLight(0xffffff, 0x6b6b6b, 1.05);
+scene.add(hemi);
 const sun = new DirectionalLight(0xffffff, 0.7);
 sun.position.set(0.5, 1, 0.3);
 scene.add(sun);
+const BASE_HEMI = hemi.intensity; // full-brightness (in-air) light intensities, so the
+const BASE_SUN = sun.intensity; //  medium's lightMultiplier scales relative to these
 
 // Chunked terrain: the world is split into fixed cubes, each its own mesh, so a
 // block edit rebuilds only the chunk(s) it touches instead of the whole world.
@@ -291,6 +303,19 @@ function updateCamera(): void {
   camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
 }
 
+// Swap the scene atmosphere to whatever medium the eye is currently in. Pure lookup
+// via core/medium — no logic here. Above water resolves to Air (today's fog, no
+// dimming), so nothing changes; underwater to a blue, close, dimmed fog.
+function updateAtmosphere(): void {
+  const def = mediumDef(mediumAtPoint(world, terrain.waterField, eye()));
+  atmosphere.setRGB(def.fogColor[0], def.fogColor[1], def.fogColor[2], SRGBColorSpace);
+  // atmosphere IS fog.color (shared), so this recolours the fog and the background at once.
+  fog.near = def.fogNear;
+  fog.far = def.fogFar;
+  hemi.intensity = BASE_HEMI * def.lightMultiplier;
+  sun.intensity = BASE_SUN * def.lightMultiplier;
+}
+
 function updateHighlight(): void {
   const hit = pickBlock();
   if (hit) {
@@ -322,6 +347,7 @@ function frame(now: number): void {
 
   updatePlayer(dt);
   updateCamera();
+  updateAtmosphere();
   updateHighlight();
   renderer.render(scene, camera);
 
