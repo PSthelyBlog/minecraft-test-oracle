@@ -156,10 +156,14 @@ oracle suite guards.
    the player falls below `y = −5`.
 3. **`updateCamera()`** — positions the camera at the eye (player centre + `EYE = 0.72`) and
    sets its rotation from `yaw`/`pitch`.
-4. **`updateHighlight()`** — casts a ray (`directionFromYawPitch` → `raycast`, reach 6) and
+4. **`updateAtmosphere()`** — classifies the eye's medium
+   (`medium.mediumAtPoint(world, terrain.waterField, eye)`) and applies its `MediumDef` to the
+   shared fog/background `Color` and the light intensities. Above water this resolves to `Air`
+   (today's `Fog(SKY, 40, 110)`, no dimming — a no-op); underwater to a blue, close, dimmed fog.
+5. **`updateHighlight()`** — casts a ray (`directionFromYawPitch` → `raycast`, reach 6) and
    moves the wireframe selection cube onto the hit block (hidden if no hit).
-5. **`renderer.render(scene, camera)`**.
-6. Updates the HUD (xyz, fps, ground/air/flying state, held block).
+6. **`renderer.render(scene, camera)`**.
+7. Updates the HUD (xyz, fps, ground/air/flying state, held block).
 
 Mouse movement updates `yaw`/`pitch` (in the `mousemove` listener, only while pointer is
 locked). Clicks call break/place.
@@ -191,8 +195,9 @@ World (Uint8Array)
   `shade` = the per-face directional shade (top `1.0` … bottom `0.5`) **× per-vertex ambient
   occlusion** (corners/crevices darken; `vertexAO`), so the look is `texel × shade ×
 lighting` — the flat-shaded Classic style, now textured and contact-shaded.
-- Lighting is a `HemisphereLight` + a soft `DirectionalLight`; a `Fog` matching the sky
-  colour fades the far edge of the world.
+- Lighting is a `HemisphereLight` + a soft `DirectionalLight`; a `Fog` fades the far edge of
+  the world. Fog colour/range and the light intensities are set **per frame from the medium the
+  eye is in** (`core/medium`) — the sky fog above water, a blue/close/dimmed fog underwater.
 
 ### Mesh rebuilds on edit
 
