@@ -137,7 +137,8 @@ const HALF: Vec3 = [0.3, 0.9, 0.3]; // 0.6 x 1.8 x 0.6 box
 const EYE = 0.72; // eye offset above the box centre
 const REACH = 6;
 const TUNING: MovementTuning = {
-  walk: 5.2,
+  run: 5.2, // default ground speed
+  walk: 3.0, // slower, precise speed while Ctrl is held
   fly: 11,
   gravity: -28,
   jump: 9,
@@ -288,6 +289,7 @@ function updatePlayer(dt: number): void {
     up: (keys.has("Space") ? 1 : 0) - (keys.has("ShiftLeft") ? 1 : 0),
     jump: keys.has("Space"),
     crouch: keys.has("ShiftLeft"),
+    walk: keys.has("ControlLeft"),
   };
   player = stepMovement(world, terrain.waterField, player, input, dt, TUNING);
 

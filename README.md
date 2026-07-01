@@ -30,9 +30,9 @@ build, lint, and the headless render check; the mutation score is published to t
 separate workflow that runs on a published **release** or manual dispatch (not on every merge).
 See [docs/TESTING.md](docs/TESTING.md).
 
-**Controls:** click to lock the mouse · `WASD` move · mouse look · `Space` jump ·
-`Shift` crouch/descend · left-click break · right-click place · `1–9`/scroll select ·
-`F` fly · `N` new world · `Esc` release mouse.
+**Controls:** click to lock the mouse · `WASD` move · `Ctrl` walk (slower) · mouse look ·
+`Space` jump · `Shift` crouch/descend · left-click break · right-click place ·
+`1–9`/scroll select · `F` fly · `N` new world · `Esc` release mouse.
 
 Edits are **saved to your browser** (localStorage) and restored on reload; `N` starts a fresh
 world.

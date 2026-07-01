@@ -11,7 +11,8 @@ import {
 import type { Vec3 } from "../core/math";
 
 const TUNING: MovementTuning = {
-  walk: 5,
+  run: 5,
+  walk: 3,
   fly: 10,
   gravity: -28,
   jump: 9,
@@ -20,7 +21,14 @@ const TUNING: MovementTuning = {
   buoyancy: 0.8,
   swimUp: 4,
 };
-const NO_INPUT: MovementInput = { forward: 0, strafe: 0, up: 0, jump: false, crouch: false };
+const NO_INPUT: MovementInput = {
+  forward: 0,
+  strafe: 0,
+  up: 0,
+  jump: false,
+  crouch: false,
+  walk: false,
+};
 
 // All movement test worlds are 16×24×16; this all-dry water field keeps submersion 0, so
 // these dry-movement oracles exercise the strict-extension (s = 0) path unchanged.
@@ -100,8 +108,9 @@ describe("movement oracle", () => {
     expect(midair.vel[1]).toBeLessThanOrEqual(0); // gravity only, no launch
   });
 
-  // METAMORPHIC: diagonal movement is not faster than cardinal movement. The
-  // horizontal speed is exactly `walk` whether one axis or two are pressed.
+  // METAMORPHIC: diagonal movement is not faster than cardinal movement. The default
+  // (no walk modifier) horizontal speed is exactly `run`, one axis or two.
+  const horizSpeed = (s: PlayerState) => Math.hypot(s.vel[0], s.vel[2]);
   test("diagonal speed equals cardinal speed (normalized)", () => {
     const w = floorWorld();
     const cardinal = stepMovement(
@@ -120,9 +129,79 @@ describe("movement oracle", () => {
       0.016,
       TUNING,
     );
-    const sp = (s: PlayerState) => Math.hypot(s.vel[0], s.vel[2]);
-    expect(sp(cardinal)).toBeCloseTo(TUNING.walk, 9);
-    expect(sp(diagonal)).toBeCloseTo(TUNING.walk, 9);
+    expect(horizSpeed(cardinal)).toBeCloseTo(TUNING.run, 9);
+    expect(horizSpeed(diagonal)).toBeCloseTo(TUNING.run, 9);
+  });
+
+  // DEFAULT IS RUN, not walk: a plain input (walk flag off) moves at `run`. Pins the
+  // ground-speed ternary's default branch — a swapped ternary would give `walk` here.
+  test("default ground speed is run (not walk)", () => {
+    const step = stepMovement(
+      floorWorld(),
+      DRY,
+      player({ onGround: true }),
+      { ...NO_INPUT, forward: 1 },
+      0.016,
+      TUNING,
+    );
+    expect(horizSpeed(step)).toBeCloseTo(TUNING.run, 9);
+    expect(TUNING.run).not.toBeCloseTo(TUNING.walk, 9); // the tiers are genuinely distinct
+  });
+
+  // METAMORPHIC (walk tier): holding Ctrl (input.walk) scales the horizontal speed by
+  // EXACTLY walk/run, for every direction — an independent magnitude re-derivation over
+  // random yaw + forward/strafe. Kills any wrong scalar or a run/walk swap.
+  test("walk modifier scales horizontal speed by exactly walk/run, at both tiers diagonal-safe", () => {
+    const w = floorWorld();
+    fc.assert(
+      fc.property(
+        fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+        fc.integer({ min: -1, max: 1 }),
+        fc.integer({ min: -1, max: 1 }),
+        (yaw, forward, strafe) => {
+          fc.pre(forward !== 0 || strafe !== 0); // need actual movement to compare speeds
+          const start = player({ onGround: true, yaw });
+          const run = stepMovement(w, DRY, start, { ...NO_INPUT, forward, strafe }, 0.016, TUNING);
+          const walk = stepMovement(
+            w,
+            DRY,
+            start,
+            { ...NO_INPUT, forward, strafe, walk: true },
+            0.016,
+            TUNING,
+          );
+          // walk tier is exactly the run speed × (walk/run)
+          expect(horizSpeed(walk)).toBeCloseTo(horizSpeed(run) * (TUNING.walk / TUNING.run), 9);
+          // and each tier is direction-normalized to its own top speed (diagonal-safe)
+          const top = Math.hypot(forward, strafe) > 0 ? TUNING.run : 0;
+          expect(horizSpeed(run)).toBeCloseTo(top, 9);
+        },
+      ),
+    );
+  });
+
+  // STRICT EXTENSION: the walk modifier is GROUND-only — flying ignores it (flying has its
+  // own single speed), so a flying step is identical with the flag on or off.
+  test("walk modifier has no effect while flying", () => {
+    const start = player({ pos: [8, 12, 8], flying: true });
+    const normal = stepMovement(
+      floorWorld(),
+      DRY,
+      start,
+      { ...NO_INPUT, forward: 1 },
+      0.016,
+      TUNING,
+    );
+    const held = stepMovement(
+      floorWorld(),
+      DRY,
+      start,
+      { ...NO_INPUT, forward: 1, walk: true },
+      0.016,
+      TUNING,
+    );
+    expect(horizSpeed(held)).toBeCloseTo(horizSpeed(normal), 9);
+    expect(horizSpeed(normal)).toBeCloseTo(TUNING.fly, 9); // fly speed, not run/walk
   });
 
   // DIRECTION (golden): at yaw=0, W must move toward -Z and D toward +X — and the
@@ -232,7 +311,7 @@ describe("movement oracle", () => {
       floorWorld(),
       DRY,
       s,
-      { forward: 1, strafe: 1, up: 1, jump: true, crouch: true },
+      { forward: 1, strafe: 1, up: 1, jump: true, crouch: true, walk: true },
       0.016,
       TUNING,
     );
@@ -275,7 +354,7 @@ describe("swim physics (submersion-driven buoyancy & drag)", () => {
     const wet = stepMovement(W, fullWater(), player({ pos: [8, 10, 8] }), input, dt, TUNING);
     const dry = stepMovement(W, DRY, player({ pos: [8, 10, 8] }), input, dt, TUNING);
     const sp = (s: PlayerState): number => Math.hypot(s.vel[0], s.vel[2]);
-    expect(sp(wet)).toBeCloseTo(TUNING.walk * (1 - TUNING.swimDrag), 9);
+    expect(sp(wet)).toBeCloseTo(TUNING.run * (1 - TUNING.swimDrag), 9); // default (run) × drag
     // each component scaled by exactly (1 − swimDrag) vs the dry step (pins x and z, not just speed)
     expect(Math.abs(wet.vel[0])).toBeCloseTo(Math.abs(dry.vel[0]) * (1 - TUNING.swimDrag), 9);
     expect(Math.abs(wet.vel[2])).toBeCloseTo(Math.abs(dry.vel[2]) * (1 - TUNING.swimDrag), 9);
