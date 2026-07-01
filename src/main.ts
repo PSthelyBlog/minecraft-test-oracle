@@ -287,7 +287,7 @@ function updatePlayer(dt: number): void {
     strafe: (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0),
     up: (keys.has("Space") ? 1 : 0) - (keys.has("ShiftLeft") ? 1 : 0),
     jump: keys.has("Space"),
-    sneak: keys.has("ShiftLeft"),
+    crouch: keys.has("ShiftLeft"),
   };
   player = stepMovement(world, terrain.waterField, player, input, dt, TUNING);
 
