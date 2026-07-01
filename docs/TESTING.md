@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 162 oracle tests once (Vitest)
+npm test            # run all 170 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -125,6 +125,7 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `movement.ts`    |           100% | incl. swim physics (buoyancy/drag/swim-up); every mutant killed                         |
 | `atlas.ts`       |           100% | per-face tile (layer) selection; `TILE_COLOR` static (injection-proven)                 |
 | `waterMesh.ts`   |           100% | translucent water pass; where/shade/winding censuses kill every mutant                  |
+| `medium.ts`      |           100% | observer's medium (air/water/solid); partition census + submersion differential; 0 surv |
 | `physics.ts`     |           ~99% | AABB collide + `submersion`; 1 equivalent survivor (the `delta[1] < 0` onGround guard)  |
 | `world.ts`       |           ~97% |                                                                                         |
 | `mesher.ts`      |           ~96% | chunked + greedy, tile-local UV/layer, AO, RGB light; 18 equivalent survivors           |
@@ -133,7 +134,7 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
 | `water.ts`       |           ~86% | flood fill (reachability/relaxation/inflow-witness); all 6 survivors equivalent (below) |
 | `light.ts`       |           ~83% | block/sky/combined + RGB channels; all 22 survivors equivalent (classes below)          |
-| **overall**      |     **~94.6%** | 162 tests across 18 files                                                               |
+| **overall**      |     **~94.6%** | 170 tests across 19 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
