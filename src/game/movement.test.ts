@@ -2,7 +2,7 @@ import { describe, test, expect } from "vitest";
 import fc from "fast-check";
 import { World } from "../core/world";
 import { Block } from "../core/blocks";
-import { boxIntersectsSolid } from "../core/physics";
+import { boxIntersectsSolid, moveAndCollide } from "../core/physics";
 import {
   stepMovement,
   resolveCrouch,
@@ -19,7 +19,7 @@ const TUNING: MovementTuning = {
   gravity: -28,
   jump: 9,
   half: [0.3, 0.9, 0.3],
-  crouchHalfY: 0.5, // 1.0 tall crouched (a cube) vs 1.8 standing
+  crouchHalfY: 0.4, // 0.8 tall crouched (clears a 1-block gap with room to spare) vs 1.8 standing
   swimDrag: 0.5,
   buoyancy: 0.8,
   swimUp: 4,
@@ -442,7 +442,7 @@ describe("swim physics (submersion-driven buoyancy & drag)", () => {
 describe("crouch posture (resolveCrouch)", () => {
   const STAND_HALF: Vec3 = TUNING.half;
   const CROUCH_HALF: Vec3 = [TUNING.half[0], TUNING.crouchHalfY, TUNING.half[2]];
-  const dHalf = STAND_HALF[1] - TUNING.crouchHalfY; // centre drop / rise on a toggle (0.4)
+  const dHalf = STAND_HALF[1] - TUNING.crouchHalfY; // centre drop / rise on a toggle (0.5)
   const bottom = (pos: Vec3, half: Vec3) => pos[1] - half[1]; // the anchored feet line
   const FLOOR_TOP = 4; // floorWorld() is solid for y 0..3, so its top face is at y=4
 
@@ -485,22 +485,32 @@ describe("crouch posture (resolveCrouch)", () => {
     expect(r.pos[1] - crouched[1]).toBeCloseTo(dHalf, 9); // centre rose by dHalf
   });
 
-  // REQUIREMENT (cube-height gap) + STAND-UP BLOCKED: the crouched box is exactly one cube
-  // (1.0) tall, so it fits a 1-block-high opening that the standing box cannot — and releasing
-  // crouch under that ceiling refuses to stand. Independently witnessed by boxIntersectsSolid.
-  test("crouched fits a 1-block (cube-height) gap that blocks standing", () => {
+  // REQUIREMENT (pass a 1-block gap) + STAND-UP BLOCKED. A resting player floats slightly ABOVE
+  // the floor — gravity settles within one sub-step and moveAndCollide leaves the feet at the last
+  // non-colliding spot, never snapped to the integer — so an EXACTLY-cube-tall (1.0) crouch pokes
+  // its top into the ceiling and sticks. The crouch must be strictly shorter than the gap: with the
+  // feet floated by a plausible rest epsilon, the crouched box SLIDES a full block through a 1-block
+  // opening (moveAndCollide advances, doesn't just touch) while the standing box can't even fit.
+  test("a crouched player slides through a 1-block gap despite the settling float", () => {
     const w = floorWorld(); // solid floor y0..3 → floor top at y=4
     for (let z = 0; z < w.sizeZ; z++) for (let x = 0; x < w.sizeX; x++) w.set(x, 5, z, Block.Stone); // ceiling → open gap [4,5]
-    const feet = FLOOR_TOP;
-    const crouched: Vec3 = [8, feet + CROUCH_HALF[1], 8]; // box spans y[4,5]
-    const standing: Vec3 = [8, feet + STAND_HALF[1], 8]; // box spans y[4,5.8]
-    expect(2 * CROUCH_HALF[1]).toBeCloseTo(1, 9); // the crouch is exactly one cube tall
-    // the requirement: the crouched box fits the 1-cube gap; the standing box does not
-    expect(boxIntersectsSolid(w, crouched, CROUCH_HALF)).toBe(false);
-    expect(boxIntersectsSolid(w, standing, STAND_HALF)).toBe(true);
+    const EPS = 0.1; // conservative rest float above the floor (max ≈ |gravity|·maxDt² ≈ 0.07)
+    const feet = FLOOR_TOP + EPS;
+    const crouchStart: Vec3 = [8, feet + CROUCH_HALF[1], 8];
+    const standStart: Vec3 = [8, feet + STAND_HALF[1], 8];
+    // real clearance: the crouched box fits even when floated; the standing box does not
+    expect(boxIntersectsSolid(w, crouchStart, CROUCH_HALF)).toBe(false);
+    expect(boxIntersectsSolid(w, standStart, STAND_HALF)).toBe(true);
+    // and it actually slides a full block in x under the ceiling — not merely grazes it
+    const slid = moveAndCollide(w, crouchStart, CROUCH_HALF, [1, 0, 0]);
+    expect(slid.collided[0]).toBe(false);
+    expect(slid.pos[0]).toBeCloseTo(9, 9);
+    // strictly shorter than the gap by more than the float (an exactly-cube 1.0 grazes + sticks,
+    // and fails this), so it reliably passes a 1-block opening
+    expect(2 * CROUCH_HALF[1]).toBeLessThan(1 - EPS);
     // and standing up under that ceiling is refused — stay crouched, box unchanged
-    const r = resolveCrouch(w, crouched, true, false, STAND_HALF, CROUCH_HALF);
-    expect(r).toEqual({ pos: crouched, half: CROUCH_HALF, crouching: true });
+    const r = resolveCrouch(w, crouchStart, true, false, STAND_HALF, CROUCH_HALF);
+    expect(r).toEqual({ pos: crouchStart, half: CROUCH_HALF, crouching: true });
   });
 
   // FEET-ANCHOR INVARIANT (metamorphic, headline): for ANY world, position, and toggle, the
