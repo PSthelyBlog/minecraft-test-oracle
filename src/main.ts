@@ -134,7 +134,7 @@ scene.add(highlight);
 // Player
 // ---------------------------------------------------------------------------
 const HALF: Vec3 = [0.3, 0.9, 0.3]; // 0.6 x 1.8 x 0.6 box
-const CROUCH_HALF_Y = 0.75; // crouched box is 1.5 tall (vs 1.8 standing)
+const CROUCH_HALF_Y = 0.5; // crouched box is 1.0 tall — a cube, so it fits a 1-block gap
 const EYE = 0.72; // eye offset above the box centre
 const CROUCH_EYE = EYE - (HALF[1] - CROUCH_HALF_Y); // eye tracks the lower head when crouched
 const REACH = 6;
