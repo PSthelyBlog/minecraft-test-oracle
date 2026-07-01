@@ -324,6 +324,41 @@ material, alpha-blended, `depthWrite` off).
 
 ---
 
+## `core/medium.ts`
+
+```ts
+const Medium = { Air: 0, Water: 1, Solid: 2 } as const;
+
+interface MediumDef {
+  id: MediumId; name: string;
+  fogColor: readonly [number, number, number];   // 0..1
+  fogNear: number; fogFar: number;               // linear-fog planes, in blocks
+  lightMultiplier: number;                        // brightness while immersed, 0..1
+}
+
+const MEDIA: Readonly<Record<MediumId, MediumDef>>
+mediumDef(id: MediumId): MediumDef                                  // total; unknown → Air
+mediumAt(world, water, x, y, z): MediumId                          // the medium filling a cell
+mediumAtPoint(world, water, point: Vec3): MediumId                 // the medium at a point (eye)
+```
+
+The medium an **observer** is immersed in — as distinct from the block in a cell. `world`
+answers "what block is here?" and `water` "is this cell flooded?"; `medium` answers "what is the
+camera _inside_?", the fact that decides atmosphere (fog colour/range, an underwater dimming). It
+is a total, disjoint 3-way partition: `Water` if the cell is flooded, else `Solid` if the block
+collides, else `Air`; out of bounds is `Air` (open sky). `Air` reproduces today's sky fog
+(`Fog(SKY, 40, 110)`, no dimming) exactly, so above water is a strict no-op; `Water` is a blue,
+close-pulled, dimming fog. The shell reads `mediumAtPoint(world, water, eye)` each frame and sets
+`scene.fog`/`background` from the returned `MediumDef` — no logic in the shell.
+
+> Pinned by a **partition census** (every cell — and one ring out of bounds — matches an
+> independent 3-way re-derivation), a **disjointness** invariant (no cell is both Water and Solid,
+> cross-checked against `computeWater`), a **differential** against `physics.submersion`
+> (`submersion(box) > 0` iff the box overlaps a `Water` cell — no shared code), and a **golden**
+> registry incl. the strict-extension proof that `Air` == today's fog. Every mutant killed (100%).
+
+---
+
 ## `core/terrain.ts`
 
 ```ts

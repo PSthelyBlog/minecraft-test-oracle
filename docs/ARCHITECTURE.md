@@ -90,6 +90,14 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   buried faces culled), shaded `faceShade × lightFactor`. `ChunkedTerrain` draws it in a separate
   `waterGroup` with an alpha-blended material; the opaque terrain mesher skips `Block.Water`
   (`rendersInTerrain`). Pinned by a where/shade/winding census suite (100% mutation score).
+- **`medium.ts`** — `mediumAt(world, water, x,y,z)` / `mediumAtPoint(world, water, point)`: the
+  medium an **observer** is immersed in (`Air`/`Water`/`Solid`), as distinct from the block in a
+  cell — a total, disjoint 3-way partition (flooded → `Water`, else solid → `Solid`, else `Air`;
+  OOB → `Air`). A `MEDIA` registry (like `blocks.ts`) carries each medium's fog colour/near/far and
+  a light multiplier; `Air` reproduces today's `Fog(SKY, 40, 110)` exactly, so above water is a
+  strict no-op. The shell reads `mediumAtPoint(…, eye)` per frame to swap `scene.fog`/`background`.
+  Pinned by a partition census, a disjointness invariant, and a differential against
+  `physics.submersion` (100% mutation score).
 - **`selfcheck.ts`** — `selfCheck()` re-derives the cheapest invariants at boot and throws
   if any is broken.
 

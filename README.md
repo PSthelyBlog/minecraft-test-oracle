@@ -18,7 +18,7 @@ proven to actually catch bugs via **mutation testing**.
 npm install
 npm run hooks:install  # once — installs the pre-push mutation gate (see below)
 npm run dev        # play at http://localhost:5173
-npm test           # 115 oracle tests (Vitest + fast-check)
+npm test           # 170 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
@@ -61,6 +61,7 @@ src/core/      pure, dependency-free, oracle-tested logic
   light.ts       block-light + skylight propagation (shared BFS flood-fill)
   water.ts       water flow as a deterministic flood fill (Classic model, 0/1 field)
   waterMesh.ts   translucent water surface mesh (the visible water pass)
+  medium.ts      what medium an observer is in (air/water/solid) → fog & atmosphere
   terrain.ts     deterministic seeded terrain generation
   physics.ts     AABB vs voxel-grid collision, resolved per axis
   selfcheck.ts   boot self-check: re-derives cheap invariants and THROWS at startup
