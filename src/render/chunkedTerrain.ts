@@ -13,8 +13,10 @@
 import { Group, Mesh, type Material } from "three";
 import type { World } from "../core/world";
 import { buildGreedyChunkMesh, chunkDims, chunksAffectedByEdit, CHUNK_SIZE } from "../core/mesher";
-import { computeLightRGB, type RGBLight } from "../core/light";
+import { computeLightRGB, type EmissiveField, type RGBLight } from "../core/light";
 import { computeWater } from "../core/water";
+import { computeLava } from "../core/lava";
+import { Block, emissionOf, emissionColorOf } from "../core/blocks";
 import { settle } from "../core/gravity";
 import { buildWaterChunkMesh } from "../core/waterMesh";
 import { geometryFromMesh } from "./chunkGeometry";
@@ -28,12 +30,15 @@ export class ChunkedTerrain {
   private readonly dims: { nx: number; ny: number; nz: number };
   private readonly meshes: (Mesh | null)[]; // one terrain slot per chunk; null = empty
   private readonly waterMeshes: (Mesh | null)[]; // one water slot per chunk; null = no water
-  // Combined RGB light + the water presence field, both recomputed and diffed per edit
-  // (both are sub-10 ms on this world, so the per-edit recompute is imperceptible — see
-  // the incremental discussion in #86). The mesher dims faces by `light`; the water mesh
-  // is built from `water` and shaded by `light`.
+  // Combined RGB light + the water and lava presence fields, each recomputed and diffed
+  // per edit (all sub-10 ms on this world, so the per-edit recompute is imperceptible —
+  // see the incremental discussion in #86). The mesher dims faces by `light`; the water
+  // mesh is built from `water` and shaded by `light`. The lava field is fed into the
+  // light recompute as an emissive field (the whole tongue glows, #114) and drives the
+  // observer's Lava medium (`lavaField`).
   private light: RGBLight;
   private water: Uint8Array;
+  private lava: Uint8Array;
 
   constructor(
     private readonly world: World,
@@ -45,7 +50,8 @@ export class ChunkedTerrain {
     const n = this.dims.nx * this.dims.ny * this.dims.nz;
     this.meshes = new Array(n).fill(null);
     this.waterMeshes = new Array(n).fill(null);
-    this.light = computeLightRGB(world);
+    this.lava = computeLava(world); // before light: the glow seeds from this field
+    this.light = computeLightRGB(world, this.lavaGlow());
     this.water = computeWater(world);
     for (let cy = 0; cy < this.dims.ny; cy++)
       for (let cz = 0; cz < this.dims.nz; cz++)
@@ -58,6 +64,20 @@ export class ChunkedTerrain {
   /** The current water presence field (0/1), for player physics (submersion). */
   get waterField(): Uint8Array {
     return this.water;
+  }
+
+  /** The current lava presence field (0/1), for the observer's medium (atmosphere). */
+  get lavaField(): Uint8Array {
+    return this.lava;
+  }
+
+  /** The lava field as an emissive light field, glowing with Block.Lava's registry values. */
+  private lavaGlow(): EmissiveField {
+    return {
+      field: this.lava,
+      emission: emissionOf(Block.Lava),
+      color: emissionColorOf(Block.Lava),
+    };
   }
 
   private slot(cx: number, cy: number, cz: number): number {
@@ -106,14 +126,15 @@ export class ChunkedTerrain {
 
   /**
    * Rebuild the chunks a block edit at (x, y, z) can have changed — in geometry,
-   * gravity, lighting, OR water. First loose blocks settle: `settle` drops any sand/gravel
-   * the edit left unsupported, and the moved cells are applied to the world and folded into
-   * the remesh union (settle runs BEFORE the light/water recompute so those reflect the fallen
-   * blocks). The RGB light and water fields are then each recomputed and diffed against the
-   * previous field (all sub-10 ms here). A chunk must remesh if its geometry, a settled cell,
-   * the light at a face's open cell, or its water changed — for each such cell that is exactly
-   * `chunksAffectedByEdit(cell)`, so we union it over the edit and every changed cell, then
-   * rebuild both meshes there.
+   * gravity, lighting, water, OR lava. First loose blocks settle: `settle` drops any
+   * sand/gravel the edit left unsupported, and the moved cells are applied to the world and
+   * folded into the remesh union (settle runs BEFORE the field recomputes so those reflect
+   * the fallen blocks). The lava field is recomputed next — BEFORE light, whose emissive
+   * glow seeds from it — then the RGB light and water fields, each diffed against the
+   * previous field (all sub-10 ms here). A chunk must remesh if its geometry, a settled
+   * cell, the light at a face's open cell, its water, or its lava changed — for each such
+   * cell that is exactly `chunksAffectedByEdit(cell)`, so we union it over the edit and
+   * every changed cell, then rebuild both meshes there.
    */
   rebuildAround(x: number, y: number, z: number): void {
     // Gravity: settle loose blocks the edit may have unsupported, apply the moves in place,
@@ -126,7 +147,12 @@ export class ChunkedTerrain {
         this.world.data[i] = settled.data[i];
       }
 
-    const nextLight = computeLightRGB(this.world);
+    const nextLava = computeLava(this.world);
+    const lavaChanged: number[] = [];
+    for (let i = 0; i < nextLava.length; i++) if (nextLava[i] !== this.lava[i]) lavaChanged.push(i);
+    this.lava = nextLava;
+
+    const nextLight = computeLightRGB(this.world, this.lavaGlow());
     const lightChanged: number[] = [];
     for (let i = 0; i < this.world.volume; i++)
       if (
@@ -164,6 +190,7 @@ export class ChunkedTerrain {
 
     consider(x, y, z); // the geometry edit itself
     for (const i of gravityChanged) considerIndex(i);
+    for (const i of lavaChanged) considerIndex(i);
     for (const i of lightChanged) considerIndex(i);
     for (const i of waterChanged) considerIndex(i);
 

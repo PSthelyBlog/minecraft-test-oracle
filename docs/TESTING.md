@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 201 oracle tests once (Vitest)
+npm test            # run all 209 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -145,7 +145,7 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `gravity.ts`     |           ~86% | sand/gravel settle; conservation/no-floating/column-independence; 5 equivalent (below)  |
 | `lava.ts`        |           ~85% | bounded flood (budget relaxation/subset-vs-water/goldens); 9 equivalent (below)         |
 | `light.ts`       |         ~83.5% | block/sky/combined + RGB channels + emissive field; all 26 survivors equivalent (below) |
-| **overall**      |     **~94.0%** | 201 tests across 21 files                                                               |
+| **overall**      |     **~94.0%** | 209 tests across 21 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`

@@ -1,10 +1,10 @@
 /**
- * The *medium* an observer is immersed in — air or water — as distinct from the
+ * The *medium* an observer is immersed in — air, water, or lava — as distinct from the
  * block that occupies a cell.
  *
- * The rest of the core answers "what block is at (x,y,z)?" (`world`) and "does water
- * flood this cell?" (`water`). Neither answers "what is the camera *inside* right now?"
- * — the fact that decides atmosphere (fog colour/range, an underwater light dimming).
+ * The rest of the core answers "what block is at (x,y,z)?" (`world`) and "does a fluid
+ * flood this cell?" (`water`/`lava`). Neither answers "what is the camera *inside* right
+ * now?" — the fact that decides atmosphere (fog colour/range, an immersion light dimming).
  * Physics already reads a related quantity (`submersion`, the fraction of the player box
  * in water) for buoyancy/drag; this module names the *observer's* medium at a point so the
  * shell can swap fog/background when the eye dips below the surface. Above water it is a
@@ -26,6 +26,7 @@ export const Medium = {
   Air: 0,
   Water: 1,
   Solid: 2,
+  Lava: 3,
 } as const;
 
 export type MediumKey = keyof typeof Medium;
@@ -52,9 +53,10 @@ const SKY_RGB: readonly [number, number, number] = [0x8f / 255, 0xbc / 255, 0xff
 /**
  * Definitions indexed by medium id, total over every defined id. `Air` reproduces
  * today's atmosphere exactly (a strict extension: above water is byte-identical);
- * `Water` is a blue, close-pulled fog with a mild dimming. `Solid` is a fallback for an
- * eye embedded in a block — rendered like air, present only to make `mediumAt` a total
- * 3-way partition the census can pin.
+ * `Water` is a blue, close-pulled fog with a mild dimming; `Lava` is a molten-orange,
+ * nearly-opaque fog with a stronger dimming. `Solid` is a fallback for an eye embedded
+ * in a block — rendered like air, present only to make `mediumAt` a total partition
+ * the census can pin.
  */
 export const MEDIA: Readonly<Record<MediumId, MediumDef>> = {
   [Medium.Air]: {
@@ -81,6 +83,14 @@ export const MEDIA: Readonly<Record<MediumId, MediumDef>> = {
     fogFar: 110,
     lightMultiplier: 1,
   },
+  [Medium.Lava]: {
+    id: Medium.Lava,
+    name: "Lava",
+    fogColor: [207 / 255, 80 / 255, 16 / 255], // molten orange, matching the lava block
+    fogNear: 0.05, // being inside lava is nearly blinding-opaque —
+    fogFar: 4, // far harsher than water's 18-block visibility
+    lightMultiplier: 0.6,
+  },
 };
 
 export function mediumDef(id: MediumId): MediumDef {
@@ -88,23 +98,28 @@ export function mediumDef(id: MediumId): MediumDef {
 }
 
 /**
- * The medium filling cell `(x, y, z)`, given the world and its water field.
+ * The medium filling cell `(x, y, z)`, given the world and its water and lava fields.
  *
- * A total, disjoint 3-way partition: `Water` if the cell is flooded, else `Solid` if the
- * block collides, else `Air`. Water and solid never overlap because the flood never waters
- * a solid cell (a property of `computeWater` the oracle checks independently, not assumed).
- * Out of bounds reads as `Air` — the world edge is open sky, matching `world.get` (Air) and
- * the dry-edge convention of the water field.
+ * A total, disjoint 4-way partition: `Lava` if the cell is molten, else `Water` if
+ * flooded, else `Solid` if the block collides, else `Air`. Neither flood ever enters a
+ * solid cell (a property of `computeWater`/`computeLava` the oracles check independently,
+ * not assumed), but the two fluids CAN overlap on shared reachable air until the
+ * water↔lava reaction lands — **lava wins**: it is the louder, more dangerous signal.
+ * Out of bounds reads as `Air` — the world edge is open sky, matching `world.get` (Air)
+ * and the dry-edge convention of both fields.
  */
 export function mediumAt(
   world: World,
   water: Uint8Array,
+  lava: Uint8Array,
   x: number,
   y: number,
   z: number,
 ): MediumId {
   if (!world.inBounds(x, y, z)) return Medium.Air;
-  if (water[world.index(x, y, z)] === 1) return Medium.Water;
+  const i = world.index(x, y, z);
+  if (lava[i] === 1) return Medium.Lava;
+  if (water[i] === 1) return Medium.Water;
   if (isSolid(world.get(x, y, z))) return Medium.Solid;
   return Medium.Air;
 }
@@ -114,6 +129,18 @@ export function mediumAt(
  * that contains it. `[x, x+1)` belongs to cell `x`, so a point exactly on a boundary
  * takes the higher cell — the same `Math.floor` convention as `submersion`/`raycast`.
  */
-export function mediumAtPoint(world: World, water: Uint8Array, point: Vec3): MediumId {
-  return mediumAt(world, water, Math.floor(point[0]), Math.floor(point[1]), Math.floor(point[2]));
+export function mediumAtPoint(
+  world: World,
+  water: Uint8Array,
+  lava: Uint8Array,
+  point: Vec3,
+): MediumId {
+  return mediumAt(
+    world,
+    water,
+    lava,
+    Math.floor(point[0]),
+    Math.floor(point[1]),
+    Math.floor(point[2]),
+  );
 }
