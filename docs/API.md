@@ -37,15 +37,17 @@ type BlockId = number;
 
 const Block: {
   Air:0, Stone:1, Grass:2, Dirt:3, Cobblestone:4, Planks:5, Sand:6,
-  Gravel:7, Log:8, Leaves:9, Glass:10, Brick:11, Bedrock:12, Water:13
+  Gravel:7, Log:8, Leaves:9, Glass:10, Brick:11, Bedrock:12, Water:13,
+  Glowstone:14, Lava:15
 }
 
 interface BlockDef {
   id: BlockId;
   name: string;
-  solid: boolean;    // player collides with it (air, water are not solid)
-  opaque: boolean;   // fully hides the touching neighbour face (glass/leaves/water do not)
-  emission: number;  // light it radiates, 0..15 (0 for all but light sources, e.g. Glowstone 15)
+  solid: boolean;    // player collides with it (air, water, lava are not solid)
+  opaque: boolean;   // fully hides the touching neighbour face (glass/leaves/water/lava do not)
+  emission: number;  // light it radiates, 0..15 (0 for all but light sources: Glowstone 15, Lava 15)
+  emissionColor?: readonly [number, number, number]; // tint of the emitted light (white if unset)
   color: readonly [number, number, number];   // r,g,b in 0..1
 }
 
@@ -245,8 +247,16 @@ computeLight(world: World): Uint8Array        // per-voxel max(block, sky) — t
 
 // Coloured (RGB) light — a strict extension; { r, g, b } each a Uint8Array like above.
 // computeLightRGB is the field the mesher dims faces by.
-computeBlockLightRGB(world: World): RGBLight  // per-channel block-light, seeded round(emission·tint)
-computeLightRGB(world: World): RGBLight        // per-channel max(blockRGB, white skylight)
+computeBlockLightRGB(world: World, emissive?: EmissiveField): RGBLight  // per-channel block-light, seeded round(emission·tint)
+computeLightRGB(world: World, emissive?: EmissiveField): RGBLight        // per-channel max(blockRGB, white skylight)
+
+// An optional emissive FIELD: a derived 0/1 presence field (computeLava's) whose every
+// cell radiates like an emitter block — flowing lava glows along its whole tongue.
+interface EmissiveField {
+  field: Uint8Array;    // 0/1 presence, in world.index order
+  emission: number;     // level each field cell radiates, 0..15
+  color: readonly [number, number, number]; // channel c seeds at round(emission·color[c])
+}
 ```
 
 **Block-light.** Every emitter (`emissionOf > 0`) is seeded with its emission, then a
@@ -275,6 +285,15 @@ per-channel-max census, an `r ≥ g ≥ b` warm-ordering invariant, and a closed
 golden. (`ChunkedTerrain` recomputes this field per edit and diffs it — ~6 ms; see #86 for why an
 incremental updater wasn't kept.)
 
+**Emissive field (v0.7).** The RGB functions take an optional `EmissiveField`: every cell of a
+derived 0/1 field (lava's) is seeded at `round(emission · color[c])` alongside the block emitters
+before the same BFS — so a lava tongue glows along its whole length, not just at the placed source
+blocks (which are Air-facet cells the block-emitter seeding cannot see). A **strict extension**:
+omitted or all-dry ⇒ byte-identical output. Cells that are both a block emitter and a field cell
+keep the brighter seed. Pinned by an empty-field identity oracle and an independent re-derivation —
+field seeding must equal placing a real `Block.Lava` at every flooded cell and lighting that world
+through the existing emitter path.
+
 > Invariants (both): levels stay in `[0, 15]`; opaque cells are `0`; a lit cell that isn't its
 > own source has a neighbour brighter by ≥ 1 (light never appears from nowhere); an opaque
 > occluder only ever darkens. Block-light: a lone source in open air decays by exactly Manhattan
@@ -300,6 +319,31 @@ rule (the cells reachable by non-rising steps) — order-independent.
 > neighbour — water never appears from nowhere and never rises); adding a solid block never adds
 > water (damming). Pinned by an **independent reachability relaxation**, the **fixpoint** condition
 > itself, gap-filling / waterfall / never-rises goldens, and a seeded-terrain golden.
+
+---
+
+## `core/lava.ts`
+
+```ts
+const LAVA_RANGE = 3                    // horizontal steps a source's lava can spend
+computeLava(world: World): Uint8Array   // per-voxel lava presence 0/1, in world.index order
+```
+
+The second fluid: a **bounded** deterministic flood fill (a derived 0/1 field, like water).
+`Block.Lava` cells are **sources**; lava spreads **sideways and straight down, never up** — but
+each source carries a budget of `LAVA_RANGE` horizontal steps: a **horizontal step costs 1**, a
+**down step is free** (the budget is carried, not reset). A cell holds lava iff some source
+reaches it within budget, so lava makes short tongues that pour down any depth of cliff and
+puddle, instead of flooding a cave system like water. The field is the max-fixpoint over per-cell
+remaining budget — order-independent. Shares **no code** with `water.ts`, deliberately: that keeps
+the lava-vs-water differential oracle independent.
+
+> Invariants: values are `0`/`1`; solid cells are `0`; `Block.Lava` cells are molten; every
+> non-source lava cell has an inflow witness (lava directly above, or a horizontal lava neighbour
+> — lava never appears from nowhere and never rises); adding a solid block never adds lava
+> (damming). Pinned by an **independent budget relaxation**, a **subset differential vs
+> `computeWater`** (bounded ⊆ unbounded from the same sources), a **radius-3 diamond golden**
+> (molten at Manhattan 3, dry at 4), and a **deep-shaft golden** (a fall costs no budget).
 
 ---
 

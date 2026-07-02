@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 188 oracle tests once (Vitest)
+npm test            # run all 201 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -134,8 +134,9 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
 | `water.ts`       |           ~86% | flood fill (reachability/relaxation/inflow-witness); all 6 survivors equivalent (below) |
 | `gravity.ts`     |           ~86% | sand/gravel settle; conservation/no-floating/column-independence; 5 equivalent (below)  |
-| `light.ts`       |           ~83% | block/sky/combined + RGB channels; all 22 survivors equivalent (classes below)          |
-| **overall**      |     **~94.6%** | 188 tests across 20 files                                                               |
+| `lava.ts`        |           ~85% | bounded flood (budget relaxation/subset-vs-water/goldens); 9 equivalent (below)         |
+| `light.ts`       |         ~83.5% | block/sky/combined + RGB channels + emissive field; all 26 survivors equivalent (below) |
+| **overall**      |     **~94.0%** | 201 tests across 21 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -252,6 +253,25 @@ size` → `<=`) and the combine **loop bound** (`i < r.length` → `<=`) read on
   independent relaxation, the red-channel byte-for-byte reduction to scalar block-light, the
   per-channel-max census, the warm `r ≥ g ≥ b` ordering invariant, and a closed-form per-channel
   Manhattan-decay golden.
+- **`light.ts` emissive-field survivors (4, all equivalent).** The optional `EmissiveField`
+  (v0.7 — lava's whole tongue glows) seeds every field cell at `round(emission · color[c])`
+  alongside the block emitters, before the same shared BFS. Pinned by an **empty-field identity**
+  (a strict extension), an **independent re-derivation** (field seeding == placing a real
+  `Block.Lava` at every flooded cell and using the block-emitter path), the dark-basin golden, and
+  a **dim-field-over-emitter invariant** (max semantics — added specifically to kill the
+  unconditional-overwrite mutant `light[i] < seed → true`, which was **not** equivalent). The four
+  that remain are known classes, confirmed byte-identical over 5 000 random worlds × 3 channels:
+  - _the zero-seed gate_ (`seed > 0` → `true` / `>= 0`): a zero seed passes the gate but
+    `light[i] < 0` is unsatisfiable on a `Uint8Array`, so nothing is written or queued (the
+    emitter-seed-guard class).
+  - _the field-scan Y bound_ (`y < sizeY` → `<=`): the extra row's indices land past the array
+    end — `field[i] === undefined ≠ 1`, a no-op (the loop-bound class). The X and Z bounds are
+    **not** equivalent (their overflow _aliases into a real neighbouring cell's index_ and
+    enqueues phantom coordinates) and are killed by the re-derivation — a reminder that "same
+    mutant, different axis" can differ.
+  - _the write compare_ (`light[i] < seed` → `<=`): at equality it rewrites the identical value
+    and re-queues — it can never lower (the assignment equals the compare bound), so the fixpoint
+    is unchanged (the relax-compare class).
 - **`light.ts` survivors (13, all equivalent).** Block-light and skylight are the same BFS
   flood (a shared `floodLight`) whose result is a max-fixpoint, so several mutation points are
   provably output-preserving — the same classes seen above, here intrinsic to flood-fill. The
@@ -317,6 +337,36 @@ size` → `<=`) and the combine **loop bound** (`i < r.length` → `<=`) read on
     symmetric** — `FLOW` has only `[0, −1, 0]` — so the `y + dy` → `y − dy` mutant would flow water
     _up_ and is **killed** by the never-rises invariant and the relaxation, confirming the oracle's
     directional strength.
+- **`lava.ts` survivors (9, all equivalent).** Lava is a **bounded** flood fill: a per-cell
+  budget max-fixpoint (sources hold `LAVA_RANGE + 1`; a horizontal step costs 1, a down step is
+  free, never up; presence = budget > 0). Pinned by an **independent budget relaxation**
+  (Gauss–Seidel == the BFS), a **subset differential vs `computeWater`** (bounded ⊆ unbounded from
+  the same sources — water.ts shares no code with lava.ts), an **inflow-witness** invariant, the
+  **radius-3 diamond golden** (molten at Manhattan 3, dry at 4 — the boundary pinned on both
+  sides), a **deep-shaft golden** (a fall costs no budget), a damming metamorphic, and determinism.
+  All nine survivors are in classes already documented elsewhere — confirmed **byte-identical over
+  20 000 random worlds**, each mutant in isolation:
+  - _seed + presence loop bounds_ (`y/z/x < size` → `<=` ×3, and the presence `i < lava.length` →
+    `<=`): the extra iteration reads one cell out of bounds (→ Air, never a `Lava` source) or
+    reads `budget[length] === undefined` (`undefined > 0` is false) and writes past the
+    `Uint8Array` end (ignored) — the shared loop-bound class.
+  - _the flood queue bound_ (`head < qx.length` → `<=`): the extra iteration reads `undefined`
+    coordinates; the budget guard compares `undefined < 1` (false, so it falls through) and
+    `inBounds(NaN)` rejects every step — a no-op, the queue-bound class.
+  - _the zero-budget guard_ (`nb < 1` → `false`): redundant with the write compare — a candidate
+    of 0 can never beat a stored budget (`budget[ni] < 0` is unsatisfiable on a `Uint8Array`), so
+    removing the early return changes nothing (the redundant-guard class).
+  - _the write compare_ (`budget[ni] < nb` → `<=`): at equality it rewrites the identical value
+    and re-queues; the assignment equals the compare bound so it can never _lower_ a budget, and
+    the extra wavefronts die out — same fixpoint (the `<`/`<=` relax-compare class, as in
+    light.ts).
+  - _horizontal flood-offset signs_ (`x + dx` → `x − dx`, `z + dz` → `z − dz`): `HORIZONTAL`
+    lists each axis as both `+1` and `−1`, so flipping a sign visits the same neighbours in a
+    different order → the same max-fixpoint (the symmetric-offset class). The **down step is not
+    symmetric** — the `y − 1` → `y + 1` mutant would flow lava _up_ and is **killed** by the
+    never-rises/inflow-witness oracles, and the budget mutants that _move the boundary_ (seed
+    `RANGE + 1`, the `b − 1` charge) are killed by the diamond golden — confirming the oracle's
+    directional and metric strength.
 - **`gravity.ts` survivors (5, all equivalent).** `settle` drops loose blocks (Sand/Gravel)
   straight down onto support, per column. Pinned by a **per-id conservation census**, a
   **no-floating** invariant, **per-column conservation** (no sideways flow), **idempotence**, a

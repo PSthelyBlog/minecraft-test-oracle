@@ -8,7 +8,7 @@ run `npm test` then `npm run mutation`.
 
 1. **Register it** in `src/core/blocks.ts`:
    ```ts
-   export const Block = { /* ...existing... */ Glowstone: 14, Snow: 15 } as const;
+   export const Block = { /* ...existing... */ Lava: 15, Snow: 16 } as const;
 
    export const BLOCKS = {
      // ...existing...
@@ -17,7 +17,7 @@ run `npm test` then `npm run mutation`.
        name: "Snow",
        solid: true,
        opaque: true,
-       emission: 0, // 0..15 — only light sources emit (e.g. Glowstone is 15)
+       emission: 0, // 0..15 — only light sources emit (e.g. Glowstone and Lava are 15)
        color: rgb(245, 245, 250),
      },
    };
