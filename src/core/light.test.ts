@@ -11,6 +11,7 @@ import {
   MAX_LIGHT,
 } from "./light";
 import { generateTerrain } from "./terrain";
+import { computeLava } from "./lava";
 
 /**
  * Block-light is a max-fixpoint flood. These oracles re-derive it INDEPENDENTLY of
@@ -488,5 +489,116 @@ describe("coloured-light oracle", () => {
           expect(g[i]).toBe(Math.max(0, 13 - d));
           expect(b[i]).toBe(Math.max(0, 8 - d));
         }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Emissive-field extension: an optional derived 0/1 field (lava's) whose every cell
+// radiates like an emitter block, seeded before the same BFS.
+// ---------------------------------------------------------------------------
+
+// Lava's glow, exactly as blocks.ts declares it (the render wiring will build this
+// same object from emissionOf/emissionColorOf).
+const LAVA_GLOW = { emission: 15, color: [255 / 255, 150 / 255, 40 / 255] } as const;
+
+// Random small worlds biased toward lava sources, so the derived field has flooded
+// non-source cells for the extension to light.
+const lavaCells = fc.array(
+  fc.constantFrom(Block.Air, Block.Air, Block.Stone, Block.Lava, Block.Glowstone),
+  { minLength: 64, maxLength: 64 },
+);
+
+describe("emissive-field light oracle", () => {
+  // STRICT EXTENSION: an all-dry field contributes no seed, so passing it must be
+  // byte-identical to omitting the parameter, per channel, block and combined.
+  test("strict extension: an empty field changes nothing, byte for byte", () => {
+    fc.assert(
+      fc.property(lavaCells, (cells) => {
+        const w = fill(cells);
+        const empty = { field: new Uint8Array(w.volume), ...LAVA_GLOW };
+        const plain = computeLightRGB(w);
+        const extended = computeLightRGB(w, empty);
+        expect(Array.from(extended.r)).toEqual(Array.from(plain.r));
+        expect(Array.from(extended.g)).toEqual(Array.from(plain.g));
+        expect(Array.from(extended.b)).toEqual(Array.from(plain.b));
+      }),
+      { numRuns: 150 },
+    );
+  });
+
+  // INVARIANT (max semantics): a field cell that is ALSO a brighter block emitter keeps
+  // the brighter seed — a dim field laid over a Glowstone must change nothing, byte for
+  // byte. An unconditional overwrite would collapse the emitter to the dim seed and
+  // darken the whole neighbourhood.
+  test("invariant: a dim field never dims a brighter block emitter under it", () => {
+    const w = new World(5, 5, 5);
+    w.set(2, 2, 2, Block.Glowstone); // seeds r/g/b = 15/13/8
+    const field = new Uint8Array(w.volume);
+    field[w.index(2, 2, 2)] = 1; // the field marks exactly the emitter's cell
+    const dim = { field, emission: 1, color: [1, 1, 1] as const }; // per-channel seed 1
+    const plain = computeBlockLightRGB(w);
+    const withDim = computeBlockLightRGB(w, dim);
+    expect(Array.from(withDim.r)).toEqual(Array.from(plain.r));
+    expect(Array.from(withDim.g)).toEqual(Array.from(plain.g));
+    expect(Array.from(withDim.b)).toEqual(Array.from(plain.b));
+    expect(withDim.r[w.index(2, 2, 2)]).toBe(15); // the emitter kept its full seed
+  });
+
+  // RE-DERIVATION (headline differential): lighting `world` with lava's field as an
+  // emissive field must equal lighting a SECOND world with a real Block.Lava placed at
+  // every flooded cell — the extra-seed path re-derived through the existing,
+  // independently-oracled block-emitter path. (Field cells are non-solid — Air, Water,
+  // or the Lava sources themselves — and Lava shares their solid/opaque facets, so the
+  // substitution changes only the seeds.)
+  test("re-derivation: field seeding equals real emitter blocks at every flooded cell", () => {
+    fc.assert(
+      fc.property(lavaCells, (cells) => {
+        const w = fill(cells);
+        const field = computeLava(w);
+        const w2 = new World(w.sizeX, w.sizeY, w.sizeZ);
+        for (let i = 0; i < w.volume; i++) w2.data[i] = field[i] === 1 ? Block.Lava : w.data[i];
+        const viaField = computeBlockLightRGB(w, { field, ...LAVA_GLOW });
+        const viaBlocks = computeBlockLightRGB(w2);
+        expect(Array.from(viaField.r)).toEqual(Array.from(viaBlocks.r));
+        expect(Array.from(viaField.g)).toEqual(Array.from(viaBlocks.g));
+        expect(Array.from(viaField.b)).toEqual(Array.from(viaBlocks.b));
+      }),
+      { numRuns: 150 },
+    );
+  });
+
+  // GOLDEN (integration, the point of the feature): a source pours down a sealed shaft
+  // into a dark roofed basin; the flooded END of the tongue — plain Air in the world,
+  // far from the source block — glows at the FULL per-channel seed (red 15,
+  // green round(15·0.59) = 9, blue round(15·0.16) = 2), and the light decays by
+  // Manhattan distance from the tongue. Source-only emission leaves the basin dark.
+  test("golden: the flooded tongue itself lights a dark basin at full seed", () => {
+    const N = 9;
+    const H = 8;
+    const w = new World(N, H, N);
+    for (let z = 0; z < N; z++)
+      for (let x = 0; x < N; x++) {
+        w.set(x, 0, z, Block.Stone); // floor
+        w.set(x, H - 1, z, Block.Stone); // roof: no skylight reaches the basin
+      }
+    const c = 4;
+    // A stone shaft (y = 2 … H-2) around the pour column so nothing spreads mid-fall.
+    for (let y = 2; y < H - 1; y++)
+      for (let dz = -1; dz <= 1; dz++)
+        for (let dx = -1; dx <= 1; dx++)
+          if (dx !== 0 || dz !== 0) w.set(c + dx, y, c + dz, Block.Stone);
+    w.set(c, H - 2, c, Block.Lava); // source at the shaft mouth, under the roof
+    const field = computeLava(w);
+    expect(field[w.index(c, 1, c)]).toBe(1); // the tongue reached the basin
+    expect(w.get(c + 3, 1, c)).toBe(Block.Air); // the diamond's rim cell is plain Air…
+    expect(field[w.index(c + 3, 1, c)]).toBe(1); // …flooded at exactly LAVA_RANGE
+    const { r, g, b } = computeLightRGB(w, { field, ...LAVA_GLOW });
+    expect(r[w.index(c + 3, 1, c)]).toBe(15); // full seed at the tongue's far rim
+    expect(g[w.index(c + 3, 1, c)]).toBe(9);
+    expect(b[w.index(c + 3, 1, c)]).toBe(2);
+    // One step past the rim (dry Air): one Manhattan step of decay from the rim cell.
+    expect(r[w.index(c + 4, 1, c)]).toBe(14);
+    expect(g[w.index(c + 4, 1, c)]).toBe(8);
+    expect(b[w.index(c + 4, 1, c)]).toBe(1);
   });
 });

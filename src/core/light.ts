@@ -174,11 +174,29 @@ export interface RGBLight {
 }
 
 /**
+ * An emissive FIELD: a derived 0/1 presence field (e.g. `computeLava`'s) whose every
+ * cell radiates like an emitter block of the given emission/tint. Lets flowing lava
+ * glow along its whole tongue, not just at the placed source blocks — the field cells
+ * are Air in the world, so the block-emitter seeding alone cannot see them.
+ */
+export interface EmissiveField {
+  /** Per-cell 0/1 presence, in `world.index` order (same shape as the light fields). */
+  readonly field: Uint8Array;
+  /** Light level each field cell radiates, `0`…`15` (like `BlockDef.emission`). */
+  readonly emission: number;
+  /** Tint `[r, g, b]` in 0..1 — channel c seeds at `round(emission · color[c])`. */
+  readonly color: readonly [number, number, number];
+}
+
+/**
  * Block-light for one colour channel: seed every emitter at `round(emission · tint[c])`
  * and run the shared `floodLight` BFS. A white emitter seeds channel c at its full
- * `emission`, so the channel matches scalar `computeBlockLight`.
+ * `emission`, so the channel matches scalar `computeBlockLight`. An optional emissive
+ * FIELD additionally seeds every field cell at `round(field.emission · field.color[c])`
+ * — a strict extension (omitted or empty ⇒ byte-identical), and cells that are both a
+ * block emitter and a field cell keep the brighter seed (the fixpoint is a max).
  */
-function computeBlockLightChannel(world: World, c: number): Uint8Array {
+function computeBlockLightChannel(world: World, c: number, emissive?: EmissiveField): Uint8Array {
   const { sizeX, sizeY, sizeZ } = world;
   const light = new Uint8Array(world.volume);
   const qx: number[] = [];
@@ -200,16 +218,35 @@ function computeBlockLightChannel(world: World, c: number): Uint8Array {
       }
     }
   }
+  if (emissive) {
+    const seed = Math.round(emissive.emission * emissive.color[c]);
+    if (seed > 0) {
+      for (let y = 0; y < sizeY; y++) {
+        for (let z = 0; z < sizeZ; z++) {
+          for (let x = 0; x < sizeX; x++) {
+            const i = world.index(x, y, z);
+            if (emissive.field[i] !== 1) continue;
+            if (light[i] < seed) {
+              light[i] = seed;
+              qx.push(x);
+              qy.push(y);
+              qz.push(z);
+            }
+          }
+        }
+      }
+    }
+  }
   floodLight(world, light, qx, qy, qz);
   return light;
 }
 
 /** Per-voxel block-light per channel (`computeBlockLight` generalised to RGB tints). */
-export function computeBlockLightRGB(world: World): RGBLight {
+export function computeBlockLightRGB(world: World, emissive?: EmissiveField): RGBLight {
   return {
-    r: computeBlockLightChannel(world, 0),
-    g: computeBlockLightChannel(world, 1),
-    b: computeBlockLightChannel(world, 2),
+    r: computeBlockLightChannel(world, 0, emissive),
+    g: computeBlockLightChannel(world, 1, emissive),
+    b: computeBlockLightChannel(world, 2, emissive),
   };
 }
 
@@ -217,8 +254,8 @@ export function computeBlockLightRGB(world: World): RGBLight {
  * Per-voxel combined light per channel: the cell-wise max of coloured block-light and
  * WHITE skylight. Skylight has no colour, so its scalar level applies to all channels.
  */
-export function computeLightRGB(world: World): RGBLight {
-  const block = computeBlockLightRGB(world);
+export function computeLightRGB(world: World, emissive?: EmissiveField): RGBLight {
+  const block = computeBlockLightRGB(world, emissive);
   const sky = computeSkyLight(world);
   const r = new Uint8Array(world.volume);
   const g = new Uint8Array(world.volume);

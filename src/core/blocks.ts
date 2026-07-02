@@ -29,6 +29,7 @@ export const Block = {
   Bedrock: 12,
   Water: 13,
   Glowstone: 14,
+  Lava: 15,
 } as const;
 
 export type BlockKey = keyof typeof Block;
@@ -181,6 +182,15 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     emission: 15,
     emissionColor: rgb(255, 217, 140), // warm glow: R full (255), G/B dimmer
     color: rgb(248, 226, 120),
+  },
+  [Block.Lava]: {
+    id: Block.Lava,
+    name: "Lava",
+    solid: false, // a fluid, like Water — the player sinks in, it doesn't cull faces
+    opaque: false,
+    emission: 15,
+    emissionColor: rgb(255, 150, 40), // molten orange: R full so red reduces to scalar
+    color: rgb(207, 80, 16),
   },
 };
 
