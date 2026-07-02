@@ -123,6 +123,23 @@ describe("ChunkedTerrain oracle", () => {
     );
   });
 
+  // GRAVITY INTEGRATION: an edit that leaves a loose block unsupported must settle it — the
+  // world is mutated (sand falls) AND the rendered scene equals a full mesh of the SETTLED
+  // world. (Would fail before rebuildAround learned to run `settle`.)
+  test("rebuildAround settles loose blocks and stays equal to the settled world", () => {
+    const w = new World(5, 6, 5);
+    for (let z = 0; z < 5; z++) for (let x = 0; x < 5; x++) w.set(x, 0, z, Block.Stone); // floor
+    w.set(2, 4, 2, Block.Sand); // a sand block floating three cells above the floor
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+    expect(w.get(2, 4, 2)).toBe(Block.Sand); // not settled yet (constructor doesn't settle)
+
+    terrain.rebuildAround(2, 4, 2); // the edit's downstream settle
+
+    expect(w.get(2, 4, 2)).toBe(Block.Air); // fell...
+    expect(w.get(2, 1, 2)).toBe(Block.Sand); // ...to rest on the stone floor (y=0)
+    expect(groupFaceKeys(terrain)).toEqual(wholeFaceKeys(w)); // scene matches the settled world
+  });
+
   // An all-air world produces no draw calls (every chunk empty → no child meshes).
   test("empty world adds no chunk meshes", () => {
     const terrain = new ChunkedTerrain(new World(16, 16, 16), MAT, WATER_MAT, 8);

@@ -15,6 +15,7 @@ import type { World } from "../core/world";
 import { buildGreedyChunkMesh, chunkDims, chunksAffectedByEdit, CHUNK_SIZE } from "../core/mesher";
 import { computeLightRGB, type RGBLight } from "../core/light";
 import { computeWater } from "../core/water";
+import { settle } from "../core/gravity";
 import { buildWaterChunkMesh } from "../core/waterMesh";
 import { geometryFromMesh } from "./chunkGeometry";
 
@@ -105,13 +106,26 @@ export class ChunkedTerrain {
 
   /**
    * Rebuild the chunks a block edit at (x, y, z) can have changed — in geometry,
-   * lighting, OR water. The RGB light and water fields are each recomputed and diffed
-   * against the previous field (both sub-10 ms here). A chunk must remesh if its
-   * geometry, the light at a face's open cell, or its water changed — for each such
-   * cell that is exactly `chunksAffectedByEdit(cell)`, so we union it over the edit and
-   * every changed light/water cell, then rebuild both meshes there.
+   * gravity, lighting, OR water. First loose blocks settle: `settle` drops any sand/gravel
+   * the edit left unsupported, and the moved cells are applied to the world and folded into
+   * the remesh union (settle runs BEFORE the light/water recompute so those reflect the fallen
+   * blocks). The RGB light and water fields are then each recomputed and diffed against the
+   * previous field (all sub-10 ms here). A chunk must remesh if its geometry, a settled cell,
+   * the light at a face's open cell, or its water changed — for each such cell that is exactly
+   * `chunksAffectedByEdit(cell)`, so we union it over the edit and every changed cell, then
+   * rebuild both meshes there.
    */
   rebuildAround(x: number, y: number, z: number): void {
+    // Gravity: settle loose blocks the edit may have unsupported, apply the moves in place,
+    // and record the changed cells so their chunks remesh too.
+    const settled = settle(this.world);
+    const gravityChanged: number[] = [];
+    for (let i = 0; i < this.world.volume; i++)
+      if (settled.data[i] !== this.world.data[i]) {
+        gravityChanged.push(i);
+        this.world.data[i] = settled.data[i];
+      }
+
     const nextLight = computeLightRGB(this.world);
     const lightChanged: number[] = [];
     for (let i = 0; i < this.world.volume; i++)
@@ -149,6 +163,7 @@ export class ChunkedTerrain {
       consider(i % sizeX, Math.floor(i / (sizeX * sizeZ)), Math.floor(i / sizeX) % sizeZ);
 
     consider(x, y, z); // the geometry edit itself
+    for (const i of gravityChanged) considerIndex(i);
     for (const i of lightChanged) considerIndex(i);
     for (const i of waterChanged) considerIndex(i);
 
