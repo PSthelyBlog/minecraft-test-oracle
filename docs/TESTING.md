@@ -68,6 +68,15 @@ Treating every survivor as a blind spot during development surfaced real problem
    the **triangle split** of the non-uniform 1×1 quads (winding is outward either way). Fixed
    with a per-cell unit-tile check and an independent brighter-diagonal re-derivation — a reminder
    that a coverage census alone doesn't pin per-quad appearance.
+7. **A colour-blind chunk-impact differential (#119).** `chunksAffectedByEdit` returned only the
+   axis-neighbour chunks, but vertex **AO** samples the edited cell as a corner occluder from
+   diagonally-adjacent cells — so an edit at a chunk corner left the diagonal chunk's contact
+   shading **stale** in the renderer. The "no under-reporting" differential compared chunk meshes
+   by **face keys only**, and face _existence_ only changes across axis neighbours, so the bug
+   passed every oracle (the count-blind class again, on a different axis). Found by a full-state
+   (geometry **and** vertex colours) incremental-vs-fresh differential written for #116; fixed by
+   widening the impact set to the Chebyshev-1 cube and adding the colours to the differential's
+   signature plus an 8-chunk corner golden — both verified to fail on the unfixed code.
 
 ## The incremental-cache footgun: `mutation` vs `mutation:clean`
 
@@ -201,13 +210,16 @@ document these, not to chase a vanity number. The ones left here:
   that _is_ observable (which cell grows, where, how tall, rooted on grass) is pinned by the
   tree golden hash, the **census bijection** (re-derived roots ⇔ actual `Log` trunk bases), and
   the grounded-trunk invariant.
-- **Neighbour-offset sign** (`chunksAffectedByEdit` in `mesher.ts`, `coord + delta` →
-  `coord - delta`): the offset list is symmetric (each axis appears as both `+1` and `−1`),
-  so flipping a sign visits the same neighbours in a different order and returns the **same
-  chunk set**. Only the set matters, so these 3 mutants are equivalent. (The chunk-count
-  `chunkDims` mutants — `/` → `*` — were _not_ equivalent and were killed by a minimal-cover
-  oracle: extra chunks are empty so the face census misses them, but `(n−1)·size < dim` does
-  not.)
+- **Neighbour-offset sign** (`chunksAffectedByEdit` in `mesher.ts`, `coord + d` →
+  `coord - d`): the ±1 cube the function scans (since #119 — the cell plus its 26
+  Chebyshev-1 neighbours, matching `cornerAO`'s reach) is symmetric per axis (`d` ranges over
+  `{−1, 0, 1}`), so flipping a sign visits the same cube in a different order and returns the
+  **same chunk set**. Only the set matters, so these 3 mutants are equivalent — the same class
+  as before #119, when the offsets were a literal list. The mutants that _shrink or shift_ the
+  cube (the loop bounds and `−1` starts) are **not** equivalent and are killed by the 8-chunk
+  corner golden and the colour-inclusive differential. (The chunk-count `chunkDims` mutants —
+  `/` → `*` — were _not_ equivalent either and were killed by a minimal-cover oracle: extra
+  chunks are empty so the face census misses them, but `(n−1)·size < dim` does not.)
 - **AO corner-offset X component** (`cornerAO` in `mesher.ts`, `su[0] + sv[0]` →
   `su[0] - sv[0]`): the diagonal corner-occluder offset is the sum of the two tangent step
   vectors. X is never the _second_ tangent axis (the tangent pairs are `[1,2] / [0,2] / [0,1]`,
