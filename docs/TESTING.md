@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 170 oracle tests once (Vitest)
+npm test            # run all 188 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -133,8 +133,9 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)                   |
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
 | `water.ts`       |           ~86% | flood fill (reachability/relaxation/inflow-witness); all 6 survivors equivalent (below) |
+| `gravity.ts`     |           ~86% | sand/gravel settle; conservation/no-floating/column-independence; 5 equivalent (below)  |
 | `light.ts`       |           ~83% | block/sky/combined + RGB channels; all 22 survivors equivalent (classes below)          |
-| **overall**      |     **~94.6%** | 170 tests across 19 files                                                               |
+| **overall**      |     **~94.6%** | 188 tests across 20 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -316,6 +317,22 @@ size` → `<=`) and the combine **loop bound** (`i < r.length` → `<=`) read on
     symmetric** — `FLOW` has only `[0, −1, 0]` — so the `y + dy` → `y − dy` mutant would flow water
     _up_ and is **killed** by the never-rises invariant and the relaxation, confirming the oracle's
     directional strength.
+- **`gravity.ts` survivors (5, all equivalent).** `settle` drops loose blocks (Sand/Gravel)
+  straight down onto support, per column. Pinned by a **per-id conservation census**, a
+  **no-floating** invariant, **per-column conservation** (no sideways flow), **idempotence**, a
+  **column-independence** differential (whole-world settle == settling each column alone), a
+  fixed-blocks-unmoved census, and drop/pile goldens. All five survivors are `<` → `<=` loop bounds
+  in classes already seen — confirmed **byte-identical over 20 000 random worlds** with all five
+  applied at once:
+  - _the column + scan loop bounds_ (`z/x < size` → `<=` ×2, `y < sizeY` → `<=`): the extra
+    iteration reads a column/cell one past the edge — `world.get` returns `Air` (never falling,
+    never a support, so `pile` stays empty and nothing flushes) and any `world.set` lands out of
+    bounds and is ignored. A no-op — the shared loop-bound class.
+  - _the two pile-flush bounds_ (`i < pile.length` → `<=`, at the mid-column flush and the final
+    flush): the extra `i = pile.length` reads `pile[length] === undefined`, and `world.set(…,
+undefined)` coerces to `0` = Air — written either to a cell that is already Air (above the pile)
+    or to the support cell that is immediately overwritten by the fixed block one line later, or out
+    of bounds (ignored). No observable change — the array-index-past-end / coerced-write class.
 
 `raycast.ts` used to sit lowest (~84%) precisely because DDA traversal has many
 degenerate-input guards. The ones that encode a _choice_ (tie-break order, inclusive reach,

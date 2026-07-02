@@ -324,6 +324,28 @@ material, alpha-blended, `depthWrite` off).
 
 ---
 
+## `core/gravity.ts`
+
+```ts
+isFalling(id: BlockId): boolean          // true for Sand / Gravel
+settle(world: World): World              // loose blocks fall straight down onto support
+```
+
+`settle` returns a **new** world (never mutates) in which every Sand/Gravel block has fallen
+**straight down** — the Minecraft Classic rule, no sideways sliding — through Air until the cell
+below is non-Air, piling in its column. Only loose blocks move; every other block keeps its exact
+position. Columns are independent, so the renderer re-settles just the column(s) an edit touched.
+Water isn't handled here: loose blocks fall through a flooded pool's Air interior, and since a
+settled block is solid the water field re-floods around it (a separate recompute).
+
+> Invariants: the per-id block **multiset is conserved** (nothing vanishes or duplicates); no loose
+> block **floats** (each has non-Air below, or sits at `y=0`); each column keeps its own loose-block
+> count (no sideways flow); `settle` is **idempotent**; and settling the whole world equals settling
+> each column in isolation (**column independence**). Pinned by those censuses/invariants + drop and
+> piling goldens.
+
+---
+
 ## `core/medium.ts`
 
 ```ts
