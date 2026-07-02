@@ -60,6 +60,7 @@ src/core/      pure, dependency-free, oracle-tested logic
   atlas.ts       tile selection: (block, face) → tile index (= texture-array layer)
   light.ts       block-light + skylight propagation (shared BFS flood-fill)
   water.ts       water flow as a deterministic flood fill (Classic model, 0/1 field)
+  gravity.ts     sand/gravel settle straight down (deterministic, feet-on-support)
   waterMesh.ts   translucent water surface mesh (the visible water pass)
   medium.ts      what medium an observer is in (air/water/solid) → fog & atmosphere
   terrain.ts     deterministic seeded terrain generation

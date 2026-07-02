@@ -90,6 +90,10 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   buried faces culled), shaded `faceShade × lightFactor`. `ChunkedTerrain` draws it in a separate
   `waterGroup` with an alpha-blended material; the opaque terrain mesher skips `Block.Water`
   (`rendersInTerrain`). Pinned by a where/shade/winding census suite (100% mutation score).
+- **`gravity.ts`** — `settle(world)`: sand and gravel fall **straight down** onto support (the
+  Classic rule; no sideways sliding), piling in their column — a pure whole-world → world transform.
+  Only Sand/Gravel move; columns are independent, so the render re-settles just the edited column.
+  Oracle-tested (conservation census / no-floating invariant / column independence / idempotence).
 - **`medium.ts`** — `mediumAt(world, water, x,y,z)` / `mediumAtPoint(world, water, point)`: the
   medium an **observer** is immersed in (`Air`/`Water`/`Solid`), as distinct from the block in a
   cell — a total, disjoint 3-way partition (flooded → `Water`, else solid → `Solid`, else `Air`;
