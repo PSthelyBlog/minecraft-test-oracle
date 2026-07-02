@@ -18,7 +18,7 @@ proven to actually catch bugs via **mutation testing**.
 npm install
 npm run hooks:install  # once — installs the pre-push mutation gate (see below)
 npm run dev        # play at http://localhost:5173
-npm test           # 170 oracle tests (Vitest + fast-check)
+npm test           # 201 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
@@ -60,6 +60,7 @@ src/core/      pure, dependency-free, oracle-tested logic
   atlas.ts       tile selection: (block, face) → tile index (= texture-array layer)
   light.ts       block-light + skylight propagation (shared BFS flood-fill)
   water.ts       water flow as a deterministic flood fill (Classic model, 0/1 field)
+  lava.ts        lava flow: the same flood, bounded to 3 horizontal steps (falls are free)
   gravity.ts     sand/gravel settle straight down (deterministic, feet-on-support)
   waterMesh.ts   translucent water surface mesh (the visible water pass)
   medium.ts      what medium an observer is in (air/water/solid) → fog & atmosphere

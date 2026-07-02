@@ -11,7 +11,7 @@ import { Block, BLOCKS, HOTBAR, blockDef, isSolid, isOpaque, isAir, emissionOf }
 
 // Frozen contract: {name, solid, opaque, emission} for every block id. Derived by
 // intent, NOT by reading BLOCKS, so a mutated value disagrees with this table.
-// emission is 0 for every block except light sources (Glowstone = 15).
+// emission is 0 for every block except light sources (Glowstone = 15, Lava = 15).
 const FACETS: Record<number, { name: string; solid: boolean; opaque: boolean; emission: number }> =
   {
     [Block.Air]: { name: "Air", solid: false, opaque: false, emission: 0 },
@@ -29,6 +29,7 @@ const FACETS: Record<number, { name: string; solid: boolean; opaque: boolean; em
     [Block.Bedrock]: { name: "Bedrock", solid: true, opaque: true, emission: 0 },
     [Block.Water]: { name: "Water", solid: false, opaque: false, emission: 0 },
     [Block.Glowstone]: { name: "Glowstone", solid: true, opaque: true, emission: 15 },
+    [Block.Lava]: { name: "Lava", solid: false, opaque: false, emission: 15 },
   };
 
 describe("blocks oracle", () => {
@@ -62,8 +63,9 @@ describe("blocks oracle", () => {
       expect(e).toBeLessThanOrEqual(15);
       if (e > 0) emitters++;
     }
-    expect(emissionOf(Block.Glowstone)).toBe(15); // the one light source so far
-    expect(emitters).toBe(1);
+    expect(emissionOf(Block.Glowstone)).toBe(15); // the placed lamp
+    expect(emissionOf(Block.Lava)).toBe(15); // the fluid glow (also drives the lava light field)
+    expect(emitters).toBe(2);
     expect(emissionOf(9999)).toBe(0); // unknown ids fall back to Air → no light
   });
 
@@ -85,7 +87,7 @@ describe("blocks oracle", () => {
         h = Math.imul(h, 0x01000193);
       }
     }
-    expect((h >>> 0).toString(16)).toBe("a1091d4b");
+    expect((h >>> 0).toString(16)).toBe("d96fe4cc");
   });
 
   // TOTALITY: unknown ids fall back to Air rather than throwing or returning undefined.

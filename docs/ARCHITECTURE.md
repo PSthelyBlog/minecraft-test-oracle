@@ -77,7 +77,11 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   generalise block/combined light to **3 colour channels** (emitters carry an `emissionColor` tint,
   flooded per channel; skylight is white) — a strict extension (a white emitter reduces to the
   scalar field). The renderer dims faces by the RGB field. Pinned per channel by an independent
-  relaxation, the red-channel reduction to scalar, and a closed-form decay golden. (`ChunkedTerrain`
+  relaxation, the red-channel reduction to scalar, and a closed-form decay golden. The RGB
+  functions also take an optional **emissive field** (v0.7): every cell of a derived 0/1 field
+  (lava's) is seeded like an emitter block, so a lava tongue glows along its whole length — a
+  strict extension (omitted ⇒ byte-identical), pinned by an independent re-derivation against real
+  emitter blocks placed at the flooded cells. (`ChunkedTerrain`
   recomputes the RGB field per edit and diffs it for the changed cells — ~6 ms, see #86 on why
   incremental wasn't kept.)
 - **`water.ts`** — `computeWater(world)`: water flow as a deterministic flood fill (the Minecraft
@@ -90,6 +94,12 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   buried faces culled), shaded `faceShade × lightFactor`. `ChunkedTerrain` draws it in a separate
   `waterGroup` with an alpha-blended material; the opaque terrain mesher skips `Block.Water`
   (`rendersInTerrain`). Pinned by a where/shade/winding census suite (100% mutation score).
+- **`lava.ts`** — `computeLava(world)`: the second fluid, a **bounded** flood fill (a derived 0/1
+  field like water's). `Block.Lava` cells are sources; lava spreads sideways/down, never up, with a
+  budget of `LAVA_RANGE = 3` horizontal steps (a down step is free) — short tongues that pour down
+  cliffs and puddle, instead of flooding a cave system. Shares no code with `water.ts` so the
+  subset differential between them stays independent. Oracle-tested (budget relaxation / subset vs
+  water / inflow-witness / diamond + deep-shaft goldens / damming).
 - **`gravity.ts`** — `settle(world)`: sand and gravel fall **straight down** onto support (the
   Classic rule; no sideways sliding), piling in their column — a pure whole-world → world transform.
   Only Sand/Gravel move; columns are independent, so the render re-settles just the edited column.
