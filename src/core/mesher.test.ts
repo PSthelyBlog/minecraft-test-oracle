@@ -635,24 +635,46 @@ describe("chunked meshing oracle", () => {
     );
   });
 
-  // GOLDEN: which chunks an edit touches. Interior edits hit exactly one chunk;
-  // an edit on a chunk's max-X face also hits the chunk across that border.
-  test("golden: edit impact is 1 chunk in the interior, 2 across a border", () => {
+  // GOLDEN: which chunks an edit touches. Interior edits hit exactly one chunk; an edit
+  // on a chunk's max-X face also hits the chunk across that border; and an edit at a
+  // chunk CORNER hits all 8 incident chunks — vertex AO samples the edited cell as a
+  // corner occluder from diagonally-adjacent cells, so the diagonal chunks' shading
+  // depends on it too (#119: axis-only impact left their AO stale).
+  test("golden: edit impact is 1 chunk interior, 2 across a border, 8 at a corner", () => {
     const w = new World(8, 8, 8); // chunkSize 4 → 2×2×2 chunks
-    // (1,1,1) is interior to chunk (0,0,0): all 6 neighbours stay in it.
+    // (1,1,1) is interior to chunk (0,0,0): the whole ±1 cube stays in it.
     expect(chunksAffectedByEdit(w, 1, 1, 1, 4)).toEqual([[0, 0, 0]]);
-    // (3,1,1) is the max-X cell of chunk (0,0,0); its +X neighbour (4,1,1) is in (1,0,0).
+    // (3,1,1) is the max-X cell of chunk (0,0,0); its +X neighbours are in (1,0,0).
     const at = chunksAffectedByEdit(w, 3, 1, 1, 4)
       .map((c) => c.join(","))
       .sort();
     expect(at).toEqual(["0,0,0", "1,0,0"]);
+    // (3,3,3) is the max corner of chunk (0,0,0): the ±1 cube spans all 8 chunks.
+    const corner = chunksAffectedByEdit(w, 3, 3, 3, 4)
+      .map((c) => c.join(","))
+      .sort();
+    expect(corner).toEqual([
+      "0,0,0",
+      "0,0,1",
+      "0,1,0",
+      "0,1,1",
+      "1,0,0",
+      "1,0,1",
+      "1,1,0",
+      "1,1,1",
+    ]);
+    // At the world's own corner the out-of-bounds neighbours are dropped: 1 chunk only.
+    expect(chunksAffectedByEdit(w, 0, 0, 0, 4)).toEqual([[0, 0, 0]]);
   });
 
   // DIFFERENTIAL: chunksAffectedByEdit must not under-report. After an arbitrary
   // edit, EVERY chunk whose mesh actually changed has to be in the returned set —
   // otherwise the renderer would skip rebuilding it and leave a stale seam. We
   // verify this by re-meshing every chunk before and after the edit and checking
-  // the changed set is covered.
+  // the changed set is covered. The signature includes the VERTEX COLOURS, not just
+  // the face keys: an edit changes a diagonal chunk's mesh through AO alone (the
+  // occluder is sampled across the corner), which a coverage-only signature cannot
+  // see — exactly how the axis-only impact set survived every oracle before #119.
   test("differential: every chunk whose mesh changes is reported by chunksAffectedByEdit", () => {
     const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves);
     fc.assert(
@@ -668,7 +690,10 @@ describe("chunked meshing oracle", () => {
             z = Math.floor(flat / 5) % 5,
             y = Math.floor(flat / 25);
 
-          const sig = () => allChunkMeshes(w, chunkSize).map((m) => faceKeys(m).sort().join("|"));
+          const sig = () =>
+            allChunkMeshes(w, chunkSize).map(
+              (m) => `${faceKeys(m).sort().join("|")}#${Array.from(m.colors).join(",")}`,
+            );
           const before = sig();
           w.set(x, y, z, newId);
           const after = sig();

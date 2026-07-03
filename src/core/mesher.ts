@@ -630,11 +630,14 @@ export function buildGreedyChunkMesh(
 
 /**
  * The chunks whose mesh can change when the block at (x, y, z) is edited: the
- * cell's own chunk, plus the chunk of each of its 6 axis-neighbours (which
- * differs only when the cell sits on a chunk border). A neighbour's visible
- * faces depend on this cell's opacity, so its chunk must be rebuilt too —
- * otherwise the seam goes stale. Out-of-bounds neighbours are omitted; the list
- * is deduplicated. The render layer rebuilds exactly this set.
+ * chunk of every cell in the Chebyshev-1 cube around it (the cell + its 26
+ * neighbours, which differs from just the cell's chunk only at a chunk border).
+ * An AXIS neighbour's visible faces depend on this cell's opacity (culling), and
+ * a DIAGONAL neighbour's vertex AO samples this cell as a corner occluder
+ * (`cornerAO` reaches the full ±1 cube) — so both kinds of chunk must be rebuilt,
+ * or a seam / a corner's contact shading goes stale (#119). Out-of-bounds
+ * neighbours are omitted; the list is deduplicated. The render layer rebuilds
+ * exactly this set.
  */
 export function chunksAffectedByEdit(
   world: World,
@@ -643,34 +646,24 @@ export function chunksAffectedByEdit(
   z: number,
   chunkSize: number = CHUNK_SIZE,
 ): [number, number, number][] {
-  // The cell itself plus its 6 axis-neighbours. This list is symmetric (each axis
-  // appears as both +1 and -1), so computing a neighbour as `coord - delta` instead
-  // of `coord + delta` yields the SAME set — those sign mutants are equivalent and
-  // unkillable (documented in docs/TESTING.md), which is fine: only the resulting
-  // chunk set matters here, not the visiting order.
-  const offsets: readonly [number, number, number][] = [
-    [0, 0, 0],
-    [1, 0, 0],
-    [-1, 0, 0],
-    [0, 1, 0],
-    [0, -1, 0],
-    [0, 0, 1],
-    [0, 0, -1],
-  ];
   const seen = new Set<string>();
   const out: [number, number, number][] = [];
-  for (const [dx, dy, dz] of offsets) {
-    const px = x + dx,
-      py = y + dy,
-      pz = z + dz;
-    if (!world.inBounds(px, py, pz)) continue; // a neighbour outside the world has no chunk
-    const cx = Math.floor(px / chunkSize);
-    const cy = Math.floor(py / chunkSize);
-    const cz = Math.floor(pz / chunkSize);
-    const key = `${cx},${cy},${cz}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push([cx, cy, cz]);
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const px = x + dx,
+          py = y + dy,
+          pz = z + dz;
+        if (!world.inBounds(px, py, pz)) continue; // a neighbour outside the world has no chunk
+        const cx = Math.floor(px / chunkSize);
+        const cy = Math.floor(py / chunkSize);
+        const cz = Math.floor(pz / chunkSize);
+        const key = `${cx},${cy},${cz}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push([cx, cy, cz]);
+      }
+    }
   }
   return out;
 }
