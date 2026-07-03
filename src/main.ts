@@ -317,9 +317,10 @@ function updateCamera(): void {
 
 // Swap the scene atmosphere to whatever medium the eye is currently in. Pure lookup
 // via core/medium — no logic here. Above water resolves to Air (today's fog, no
-// dimming), so nothing changes; underwater to a blue, close, dimmed fog.
+// dimming), so nothing changes; underwater to a blue, close, dimmed fog; inside lava
+// to a molten-orange, nearly-opaque one.
 function updateAtmosphere(): void {
-  const def = mediumDef(mediumAtPoint(world, terrain.waterField, eye()));
+  const def = mediumDef(mediumAtPoint(world, terrain.waterField, terrain.lavaField, eye()));
   atmosphere.setRGB(def.fogColor[0], def.fogColor[1], def.fogColor[2], SRGBColorSpace);
   // atmosphere IS fog.color (shared), so this recolours the fog and the background at once.
   fog.near = def.fogNear;

@@ -104,13 +104,16 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   Classic rule; no sideways sliding), piling in their column — a pure whole-world → world transform.
   Only Sand/Gravel move; columns are independent, so the render re-settles just the edited column.
   Oracle-tested (conservation census / no-floating invariant / column independence / idempotence).
-- **`medium.ts`** — `mediumAt(world, water, x,y,z)` / `mediumAtPoint(world, water, point)`: the
-  medium an **observer** is immersed in (`Air`/`Water`/`Solid`), as distinct from the block in a
-  cell — a total, disjoint 3-way partition (flooded → `Water`, else solid → `Solid`, else `Air`;
-  OOB → `Air`). A `MEDIA` registry (like `blocks.ts`) carries each medium's fog colour/near/far and
-  a light multiplier; `Air` reproduces today's `Fog(SKY, 40, 110)` exactly, so above water is a
-  strict no-op. The shell reads `mediumAtPoint(…, eye)` per frame to swap `scene.fog`/`background`.
-  Pinned by a partition census, a disjointness invariant, and a differential against
+- **`medium.ts`** — `mediumAt(world, water, lava, x,y,z)` / `mediumAtPoint(world, water, lava,
+point)`: the medium an **observer** is immersed in (`Air`/`Water`/`Lava`/`Solid`), as distinct
+  from the block in a cell — a total, disjoint 4-way partition (molten → `Lava`, else flooded →
+  `Water`, else solid → `Solid`, else `Air`; OOB → `Air`; where the fluids overlap, **lava
+  wins**). A `MEDIA` registry (like `blocks.ts`) carries each medium's fog colour/near/far and a
+  light multiplier; `Air` reproduces today's `Fog(SKY, 40, 110)` exactly, so above water is a
+  strict no-op; `Lava` is a molten-orange, nearly-opaque, strongly dimmed fog. The shell reads
+  `mediumAtPoint(…, eye)` per frame to swap `scene.fog`/`background`. Pinned by a partition
+  census, a strict-extension identity (all-dry lava field == the v0.6 classifier), precedence
+  cases, a `computeLava` differential, a disjointness invariant, and a differential against
   `physics.submersion` (100% mutation score).
 - **`selfcheck.ts`** — `selfCheck()` re-derives the cheapest invariants at boot and throws
   if any is broken.
@@ -173,9 +176,10 @@ oracle suite guards.
 3. **`updateCamera()`** — positions the camera at the eye (player centre + `EYE = 0.72`) and
    sets its rotation from `yaw`/`pitch`.
 4. **`updateAtmosphere()`** — classifies the eye's medium
-   (`medium.mediumAtPoint(world, terrain.waterField, eye)`) and applies its `MediumDef` to the
-   shared fog/background `Color` and the light intensities. Above water this resolves to `Air`
-   (today's `Fog(SKY, 40, 110)`, no dimming — a no-op); underwater to a blue, close, dimmed fog.
+   (`medium.mediumAtPoint(world, terrain.waterField, terrain.lavaField, eye)`) and applies its
+   `MediumDef` to the shared fog/background `Color` and the light intensities. Above water this
+   resolves to `Air` (today's `Fog(SKY, 40, 110)`, no dimming — a no-op); underwater to a blue,
+   close, dimmed fog; inside lava to a molten-orange, nearly-opaque one.
 5. **`updateHighlight()`** — casts a ray (`directionFromYawPitch` → `raycast`, reach 6) and
    moves the wireframe selection cube onto the hit block (hidden if no hit).
 6. **`renderer.render(scene, camera)`**.

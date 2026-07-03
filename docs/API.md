@@ -393,7 +393,7 @@ settled block is solid the water field re-floods around it (a separate recompute
 ## `core/medium.ts`
 
 ```ts
-const Medium = { Air: 0, Water: 1, Solid: 2 } as const;
+const Medium = { Air: 0, Water: 1, Solid: 2, Lava: 3 } as const;
 
 interface MediumDef {
   id: MediumId; name: string;
@@ -404,24 +404,31 @@ interface MediumDef {
 
 const MEDIA: Readonly<Record<MediumId, MediumDef>>
 mediumDef(id: MediumId): MediumDef                                  // total; unknown → Air
-mediumAt(world, water, x, y, z): MediumId                          // the medium filling a cell
-mediumAtPoint(world, water, point: Vec3): MediumId                 // the medium at a point (eye)
+mediumAt(world, water, lava, x, y, z): MediumId                    // the medium filling a cell
+mediumAtPoint(world, water, lava, point: Vec3): MediumId           // the medium at a point (eye)
 ```
 
 The medium an **observer** is immersed in — as distinct from the block in a cell. `world`
-answers "what block is here?" and `water` "is this cell flooded?"; `medium` answers "what is the
-camera _inside_?", the fact that decides atmosphere (fog colour/range, an underwater dimming). It
-is a total, disjoint 3-way partition: `Water` if the cell is flooded, else `Solid` if the block
-collides, else `Air`; out of bounds is `Air` (open sky). `Air` reproduces today's sky fog
-(`Fog(SKY, 40, 110)`, no dimming) exactly, so above water is a strict no-op; `Water` is a blue,
-close-pulled, dimming fog. The shell reads `mediumAtPoint(world, water, eye)` each frame and sets
-`scene.fog`/`background` from the returned `MediumDef` — no logic in the shell.
+answers "what block is here?" and `water`/`lava` "does a fluid flood this cell?"; `medium`
+answers "what is the camera _inside_?", the fact that decides atmosphere (fog colour/range, an
+immersion dimming). It is a total, disjoint 4-way partition: `Lava` if the cell is molten, else
+`Water` if flooded, else `Solid` if the block collides, else `Air`; out of bounds is `Air` (open
+sky). The two fluids can overlap on shared reachable air until the water↔lava reaction lands —
+**lava wins** (the #116 precedence call). `Air` reproduces today's sky fog (`Fog(SKY, 40, 110)`,
+no dimming) exactly, so above water is a strict no-op; `Water` is a blue, close-pulled, dimming
+fog; `Lava` is a molten-orange, nearly-opaque (`0.05 → 4` blocks), strongly dimmed one. The shell
+reads `mediumAtPoint(world, water, lava, eye)` each frame and sets `scene.fog`/`background` from
+the returned `MediumDef` — no logic in the shell.
 
 > Pinned by a **partition census** (every cell — and one ring out of bounds — matches an
-> independent 3-way re-derivation), a **disjointness** invariant (no cell is both Water and Solid,
-> cross-checked against `computeWater`), a **differential** against `physics.submersion`
+> independent 4-way re-derivation), a **strict-extension** identity (an all-dry lava field
+> reproduces the v0.6 3-way classifier byte-for-byte), explicit **precedence** cases (synthetic
+> both-fields cell + a real overlapping flood), a **differential vs `computeLava`** (`Lava` iff
+> the field marks the cell), a **disjointness** invariant (no cell is both fluid and Solid,
+> cross-checked against both floods), a **differential** against `physics.submersion`
 > (`submersion(box) > 0` iff the box overlaps a `Water` cell — no shared code), and a **golden**
-> registry incl. the strict-extension proof that `Air` == today's fog. Every mutant killed (100%).
+> registry incl. the strict-extension proof that `Air` == today's fog and the harsher-than-water
+> ordering for `Lava`. Every mutant killed (100%).
 
 ---
 
@@ -608,18 +615,26 @@ class ChunkedTerrain {
   );
   readonly group: THREE.Group; // opaque terrain; add to the scene
   readonly waterGroup: THREE.Group; // translucent water; drawn in its own alpha pass
+  get waterField(): Uint8Array; // current 0/1 water field (physics/medium read this)
+  get lavaField(): Uint8Array; // current 0/1 lava field (the observer's medium reads this)
   rebuildAround(x, y, z): void; // remesh only the chunks an edit at (x,y,z) touches
 }
 ```
 
 Renders the world as a grid of per-chunk meshes — opaque terrain + a translucent water pass — over
 the core's `buildGreedyChunkMesh` / `buildWaterChunkMesh` / `chunksAffectedByEdit`. Holds the RGB
-light and water fields (both recomputed and diffed per edit) so `rebuildAround` remeshes only the
-chunks whose geometry, light, or water changed. Verified by the smoke test for in-browser render,
-and by a unit oracle that its assembled geometry equals an independent whole-world `buildMesh`.
+light and the water + lava fields (each recomputed and diffed per edit) so `rebuildAround`
+remeshes only the chunks whose geometry, light, water, or lava changed; the lava field is fed into
+`computeLightRGB` as `Block.Lava`'s emissive field, so the whole tongue glows in the scene (#116).
+Verified by the smoke test for in-browser render, and by unit oracles: its assembled geometry
+equals an independent whole-world `buildMesh`, its chunk colours equal the independently-composed
+greedy-mesh × lava-lit light truth (and differ from unlit — the wiring can't drop the emissive
+silently), its `lavaField` equals a from-scratch `computeLava` after edits, and incremental edits
+leave every chunk byte-identical (geometry AND colours) to a from-scratch build.
 
 > Invariant: the union of chunk geometries equals the whole-world mesh, and incremental edits
-> keep it that way (no stale seams).
+> keep the full scene state — including shading — equal to a from-scratch build (no stale seams,
+> no stale AO or glow).
 
 ---
 

@@ -2,8 +2,10 @@ import { describe, test, expect } from "vitest";
 import fc from "fast-check";
 import { MeshBasicMaterial, type Mesh } from "three";
 import { World } from "../core/world";
-import { Block } from "../core/blocks";
-import { buildMesh } from "../core/mesher";
+import { Block, emissionOf, emissionColorOf } from "../core/blocks";
+import { buildMesh, buildGreedyChunkMesh } from "../core/mesher";
+import { computeLightRGB } from "../core/light";
+import { computeLava } from "../core/lava";
 import { ChunkedTerrain } from "./chunkedTerrain";
 
 /**
@@ -144,5 +146,91 @@ describe("ChunkedTerrain oracle", () => {
   test("empty world adds no chunk meshes", () => {
     const terrain = new ChunkedTerrain(new World(16, 16, 16), MAT, WATER_MAT, 8);
     expect(terrain.group.children.length).toBe(0);
+  });
+
+  // LAVA FIELD (#116): after edits applied via rebuildAround, the maintained lava field
+  // equals a from-scratch computeLava of the post-edit world — the same differential
+  // contract the mesh union satisfies, for the field the atmosphere reads.
+  test("rebuildAround keeps lavaField equal to a from-scratch computeLava", () => {
+    const w = new World(5, 5, 5);
+    for (let z = 0; z < 5; z++) for (let x = 0; x < 5; x++) w.set(x, 0, z, Block.Stone);
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+    expect(Array.from(terrain.lavaField)).toEqual(Array.from(computeLava(w))); // fresh build
+
+    w.set(2, 1, 2, Block.Lava); // pour: the tongue floods the floor
+    terrain.rebuildAround(2, 1, 2);
+    expect(terrain.lavaField[w.index(4, 1, 2)]).toBe(1); // spread reached distance 2
+    expect(Array.from(terrain.lavaField)).toEqual(Array.from(computeLava(w)));
+
+    w.set(2, 1, 2, Block.Air); // quench: removing the source dries the whole tongue
+    terrain.rebuildAround(2, 1, 2);
+    expect(Array.from(terrain.lavaField)).toEqual(Array.from(new Uint8Array(w.volume)));
+  });
+
+  // GLOW WIRING (#116): the chunk meshes are shaded by light that includes the lava
+  // field's emissive glow. Under a roof (no skylight) the single chunk's vertex colours
+  // must equal the independently-composed core truth — greedy mesh × computeLightRGB with
+  // the lava field as Block.Lava's emissive — and must DIFFER from the same mesh lit
+  // without the field, so a dropped emissive parameter cannot pass trivially.
+  test("chunk colours include the lava field's glow (and differ from unlit)", () => {
+    const w = new World(8, 4, 8);
+    for (let z = 0; z < 8; z++)
+      for (let x = 0; x < 8; x++) {
+        w.set(x, 0, z, Block.Stone); // floor
+        w.set(x, 3, z, Block.Stone); // roof: kills skylight, so only the glow lights the room
+      }
+    w.set(1, 1, 1, Block.Lava); // source; its tongue floods the floor around it
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 8); // one 8-chunk = the whole world
+
+    const lava = computeLava(w);
+    const glow = {
+      field: lava,
+      emission: emissionOf(Block.Lava),
+      color: emissionColorOf(Block.Lava),
+    };
+    const lit = buildGreedyChunkMesh(w, 0, 0, 0, 8, computeLightRGB(w, glow));
+    const unlit = buildGreedyChunkMesh(w, 0, 0, 0, 8, computeLightRGB(w));
+
+    expect(terrain.group.children.length).toBe(1);
+    const colors = (terrain.group.children[0] as Mesh).geometry.getAttribute("color");
+    expect(Array.from(colors.array as Float32Array)).toEqual(Array.from(lit.colors));
+    expect(Array.from(lit.colors)).not.toEqual(Array.from(unlit.colors)); // the glow is visible
+  });
+
+  // FULL-STATE DIFFERENTIAL: after random edits (including pouring and quenching lava)
+  // under a roof, every chunk's geometry AND vertex colours are byte-identical to a
+  // from-scratch ChunkedTerrain of the same world. A missed lava/light diff would leave a
+  // stale glow in some chunk and diverge here.
+  test("incremental edits leave chunks byte-identical to a from-scratch build", () => {
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Lava);
+    const serialize = (terrain: ChunkedTerrain): string[] =>
+      [...terrain.group.children, ...terrain.waterGroup.children]
+        .map((child) => {
+          const geo = (child as Mesh).geometry;
+          return ["position", "color", "layer"]
+            .map((a) => Array.from(geo.getAttribute(a).array).join())
+            .join("|");
+        })
+        .sort();
+    fc.assert(
+      fc.property(
+        fc.array(fc.record({ flat: fc.nat(99), id }), { minLength: 1, maxLength: 8 }),
+        (edits) => {
+          const w = new World(5, 5, 5);
+          for (let z = 0; z < 5; z++) for (let x = 0; x < 5; x++) w.set(x, 4, z, Block.Stone); // roof
+          const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+          for (const { flat, id: newId } of edits) {
+            const x = flat % 5,
+              z = Math.floor(flat / 5) % 5,
+              y = Math.floor(flat / 25); // y in 0..3, under the roof
+            w.set(x, y, z, newId);
+            terrain.rebuildAround(x, y, z);
+          }
+          const fresh = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+          expect(serialize(terrain)).toEqual(serialize(fresh));
+        },
+      ),
+      { numRuns: 60 },
+    );
   });
 });
