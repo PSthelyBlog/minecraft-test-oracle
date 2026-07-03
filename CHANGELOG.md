@@ -9,6 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.7.0] - 2026-07-03
+
+Matter in motion.
+
+### Added
+
+- **Falling blocks** — a new pure `core/gravity.ts`: `settle(world)` drops every **Sand/Gravel**
+  block straight down onto support (the Classic rule — no sideways sliding), piling per column;
+  the render re-settles on every edit, so undermining a dune makes it fall. Pinned by a per-id
+  conservation census, a no-floating invariant, per-column conservation, idempotence, and a
+  column-independence differential. (#110, #112)
+- **Lava** — a second fluid in `core/lava.ts`: `Block.Lava` sources flood **sideways/down, never
+  up**, but _bounded_ — a budget of `LAVA_RANGE = 3` horizontal steps, with falls free — so lava
+  makes short glowing tongues that pour down cliffs and puddle instead of flooding a cave system.
+  Deliberately shares no code with `water.ts`, keeping the subset differential between them
+  independent. The **whole flooded field emits light** (emission 15, molten orange, red = 1.0)
+  via a new optional `EmissiveField` on `light.ts`'s RGB functions — a strict extension. Pinned
+  by an independent budget relaxation, a subset differential vs `computeWater`, an inflow-witness
+  invariant, radius-3 diamond + deep-shaft goldens, and a field-seeding ≡ real-emitter-blocks
+  re-derivation. (#114)
+- **Lava as a medium** — `core/medium.ts` becomes a total 4-way partition
+  (`Air`/`Water`/`Lava`/`Solid`); putting the eye inside lava swaps to a molten-orange,
+  nearly-opaque (`0.05 → 4` blocks), strongly dimmed fog. Where the two fluids transiently
+  overlap, **lava wins**. `ChunkedTerrain` computes and diffs the lava field per edit and feeds
+  it into the light recompute, so the glow is visible in-game. Pinned by a 4-way partition
+  census, a strict-extension identity (all-dry field == the v0.6 classifier), explicit precedence
+  cases, and a `computeLava` differential — 100% mutation, 0 survivors. (#116)
+- **The water↔lava reaction** — `core/reaction.ts`: where lava meets water, rock forms — a
+  `Block.Lava` **source quenches to Obsidian** (new block, with its own tile), the flowing tongue
+  **crusts to Stone**; water dominates and is never consumed. Runs to quiescence in the edit
+  loop, so pouring water on a lava pool reacts in the same rebuild — with a small **steam puff**
+  played at every converted cell. Pinned by an independent water-dilation census, a
+  synthetic-fields contract case, quiescence, a fluids-only-shrink metamorphic, water
+  conservation, and waterfall/sealing-wall goldens. (#117)
+- **Placeable fluids** — the hotbar gains **Water** and **Lava** (13 slots): pour, flood, react —
+  the whole loop is playable. Lava renders as its own opaque fluid pass with a molten tile,
+  lit by its own glow. (#118)
+
+### Changed
+
+- **`waterMesh.ts` generalised to `fluidMesh.ts`** — one fluid-surface mesher parameterised over
+  `(field, block)`, drawing water translucent and lava opaque; the full census suite
+  (where/shade/tile/winding/union) now runs for **both fluids** and the module stays at 100%
+  mutation score. `rendersInTerrain` excludes both fluid blocks — the derived fields are meshed,
+  not the source blocks. (#118)
+
+### Fixed
+
+- **Stale ambient occlusion at chunk corners** — `chunksAffectedByEdit` listed only the six
+  axis-neighbour chunks, but vertex AO samples the edited cell as a corner occluder from
+  _diagonal_ cells, so an edit at a chunk corner left the diagonally-adjacent chunk's contact
+  shading stale until an unrelated edit rebuilt it. The impact set now spans the Chebyshev-1
+  cube (exactly `cornerAO`'s reach). Found by a new full-state (geometry **and** colours)
+  incremental-vs-fresh differential; the old "no under-reporting" oracle compared face keys only
+  — the count-blind class, documented as finding #7 in TESTING.md. (#119)
+
 ## [0.6.0] - 2026-07-01
 
 Immersion & movement.
