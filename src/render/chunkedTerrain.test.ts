@@ -197,12 +197,32 @@ describe("ChunkedTerrain oracle", () => {
     expect(Array.from(lit.colors)).not.toEqual(Array.from(unlit.colors)); // the glow is visible
   });
 
-  // FULL-STATE DIFFERENTIAL: after random edits (including pouring and quenching lava)
-  // under a roof, every chunk's geometry AND vertex colours are byte-identical to a
-  // from-scratch ChunkedTerrain of the same world. A missed lava/light diff would leave a
-  // stale glow in some chunk and diverge here.
+  // REACTION INTEGRATION (#117): an edit that brings water into contact with lava must
+  // react in the same rebuild — the world is mutated (sources → obsidian, the tongue →
+  // stone), the water source survives, and the scene equals a full mesh of the reacted
+  // world. (Would fail before rebuildAround learned to run `reactFully`.)
+  test("rebuildAround reacts water onto lava and stays equal to the reacted world", () => {
+    const w = new World(7, 4, 7);
+    for (let z = 0; z < 7; z++) for (let x = 0; x < 7; x++) w.set(x, 0, z, Block.Stone); // floor
+    w.set(3, 1, 3, Block.Lava); // a lava pool, tongue flooding the floor
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+
+    w.set(3, 2, 3, Block.Water); // the edit: pour water right on top of the source
+    terrain.rebuildAround(3, 2, 3);
+
+    expect(w.get(3, 1, 3)).toBe(Block.Obsidian); // the source quenched
+    expect(w.get(5, 1, 3)).toBe(Block.Stone); // the tongue crusted (was flooded Air)
+    expect(w.get(3, 2, 3)).toBe(Block.Water); // the water source is not consumed
+    expect(Array.from(terrain.lavaField)).toEqual(Array.from(new Uint8Array(w.volume))); // no lava left
+    expect(groupFaceKeys(terrain)).toEqual(wholeFaceKeys(w)); // scene matches the reacted world
+  });
+
+  // FULL-STATE DIFFERENTIAL: after random edits (including pouring and quenching lava,
+  // and water edits that trigger the reaction) under a roof, every chunk's geometry AND
+  // vertex colours are byte-identical to a from-scratch ChunkedTerrain of the same world.
+  // A missed lava/light/reaction diff would leave a stale chunk and diverge here.
   test("incremental edits leave chunks byte-identical to a from-scratch build", () => {
-    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Lava);
+    const id = fc.constantFrom(Block.Air, Block.Stone, Block.Lava, Block.Water);
     const serialize = (terrain: ChunkedTerrain): string[] =>
       [...terrain.group.children, ...terrain.waterGroup.children]
         .map((child) => {

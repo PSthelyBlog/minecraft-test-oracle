@@ -38,7 +38,7 @@ type BlockId = number;
 const Block: {
   Air:0, Stone:1, Grass:2, Dirt:3, Cobblestone:4, Planks:5, Sand:6,
   Gravel:7, Log:8, Leaves:9, Glass:10, Brick:11, Bedrock:12, Water:13,
-  Glowstone:14, Lava:15
+  Glowstone:14, Lava:15, Obsidian:16
 }
 
 interface BlockDef {
@@ -221,7 +221,7 @@ n·size`); `chunksAffectedByEdit` reports every chunk an edit can change.
 ## `core/atlas.ts`
 
 ```ts
-const TILE_COUNT = 16
+const TILE_COUNT = 17
 const Tile = { Stone, GrassTop, GrassSide, Dirt, ... }   // tile slots = texture-array layers
 TILE_COLOR: Record<TileIndex, [r,g,b]>                    // base colour per tile (static)
 tileIndexFor(id: BlockId, faceIndex: number): TileIndex   // per-face tile (= layer) choice
@@ -347,6 +347,32 @@ the lava-vs-water differential oracle independent.
 
 ---
 
+## `core/reaction.ts`
+
+```ts
+react(world: World, water: Uint8Array, lava: Uint8Array): World  // one pass; pure (new world)
+reactFully(world: World): World                                  // iterate with fresh fields to quiescence
+```
+
+The water↔lava reaction (the Classic rule): a cell reacts iff it holds lava (per the field) AND is
+**water-touched** — itself water-flooded, or a face neighbour is. A `Block.Lava` **source**
+quenches to **Obsidian**; a flooded non-source cell (the flowing tongue, Air in the world) crusts
+to **Stone**. **Water dominates and is never consumed**: `Block.Water` cells are never overwritten
+and water-only/dry cells never solidify — the reaction only ever removes fluid reach (every
+product is solid rock that dams both floods). `reactFully` re-runs pass + field recompute until
+quiescent (rock formed mid-way can reroute the floods); each pass converts ≥ 1 cell or stops, so
+it terminates. `ChunkedTerrain.rebuildAround` runs it per edit, after `settle` — this retires the
+transient fluid-overlap window `medium`'s lava-wins precedence covers.
+
+> Invariants: one pass equals an **independent water-dilation re-derivation** byte-for-byte (the
+> converted set, both products, and every other cell unchanged); every `Block.Water` cell survives
+> in place (**conservation**); after `reactFully` **no lava cell is water-touched** and one more
+> pass is a no-op (**quiescence**); reacting never extends either fluid's reach (**monotone
+> shrink**); a **waterfall-onto-pool golden** (obsidian sources, stone crust) and a
+> **sealing-wall golden** (no contact ⇒ byte-identical); deterministic and idempotent.
+
+---
+
 ## `core/waterMesh.ts`
 
 ```ts
@@ -413,8 +439,9 @@ answers "what block is here?" and `water`/`lava` "does a fluid flood this cell?"
 answers "what is the camera _inside_?", the fact that decides atmosphere (fog colour/range, an
 immersion dimming). It is a total, disjoint 4-way partition: `Lava` if the cell is molten, else
 `Water` if flooded, else `Solid` if the block collides, else `Air`; out of bounds is `Air` (open
-sky). The two fluids can overlap on shared reachable air until the water↔lava reaction lands —
-**lava wins** (the #116 precedence call). `Air` reproduces today's sky fog (`Fog(SKY, 40, 110)`,
+sky). The two fluids can still overlap transiently (a freshly loaded world the reaction hasn't
+visited, or mid-edit before `reactFully` runs — see `core/reaction.ts`) — **lava wins** (the
+#116 precedence call). `Air` reproduces today's sky fog (`Fog(SKY, 40, 110)`,
 no dimming) exactly, so above water is a strict no-op; `Water` is a blue, close-pulled, dimming
 fog; `Lava` is a molten-orange, nearly-opaque (`0.05 → 4` blocks), strongly dimmed one. The shell
 reads `mediumAtPoint(world, water, lava, eye)` each frame and sets `scene.fog`/`background` from
@@ -622,15 +649,17 @@ class ChunkedTerrain {
 ```
 
 Renders the world as a grid of per-chunk meshes — opaque terrain + a translucent water pass — over
-the core's `buildGreedyChunkMesh` / `buildWaterChunkMesh` / `chunksAffectedByEdit`. Holds the RGB
-light and the water + lava fields (each recomputed and diffed per edit) so `rebuildAround`
-remeshes only the chunks whose geometry, light, water, or lava changed; the lava field is fed into
-`computeLightRGB` as `Block.Lava`'s emissive field, so the whole tongue glows in the scene (#116).
-Verified by the smoke test for in-browser render, and by unit oracles: its assembled geometry
-equals an independent whole-world `buildMesh`, its chunk colours equal the independently-composed
-greedy-mesh × lava-lit light truth (and differ from unlit — the wiring can't drop the emissive
-silently), its `lavaField` equals a from-scratch `computeLava` after edits, and incremental edits
-leave every chunk byte-identical (geometry AND colours) to a from-scratch build.
+the core's `buildGreedyChunkMesh` / `buildWaterChunkMesh` / `chunksAffectedByEdit`. Per edit,
+`rebuildAround` first mutates the world through the core's rules — `settle` (gravity), then
+`reactFully` (water↔lava → obsidian/stone, #117) — then recomputes and diffs the RGB light and the
+water + lava fields, remeshing only the chunks whose geometry, a settled or reacted cell, light,
+water, or lava changed; the lava field is fed into `computeLightRGB` as `Block.Lava`'s emissive
+field, so the whole tongue glows in the scene (#116). Verified by the smoke test for in-browser
+render, and by unit oracles: its assembled geometry equals an independent whole-world `buildMesh`,
+its chunk colours equal the independently-composed greedy-mesh × lava-lit light truth (and differ
+from unlit — the wiring can't drop the emissive silently), its `lavaField` equals a from-scratch
+`computeLava` after edits, an edit that pours water onto lava reacts in the same rebuild, and
+incremental edits leave every chunk byte-identical (geometry AND colours) to a from-scratch build.
 
 > Invariant: the union of chunk geometries equals the whole-world mesh, and incremental edits
 > keep the full scene state — including shading — equal to a from-scratch build (no stale seams,

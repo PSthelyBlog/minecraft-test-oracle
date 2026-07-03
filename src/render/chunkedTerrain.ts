@@ -18,6 +18,7 @@ import { computeWater } from "../core/water";
 import { computeLava } from "../core/lava";
 import { Block, emissionOf, emissionColorOf } from "../core/blocks";
 import { settle } from "../core/gravity";
+import { reactFully } from "../core/reaction";
 import { buildWaterChunkMesh } from "../core/waterMesh";
 import { geometryFromMesh } from "./chunkGeometry";
 
@@ -126,15 +127,17 @@ export class ChunkedTerrain {
 
   /**
    * Rebuild the chunks a block edit at (x, y, z) can have changed — in geometry,
-   * gravity, lighting, water, OR lava. First loose blocks settle: `settle` drops any
-   * sand/gravel the edit left unsupported, and the moved cells are applied to the world and
-   * folded into the remesh union (settle runs BEFORE the field recomputes so those reflect
-   * the fallen blocks). The lava field is recomputed next — BEFORE light, whose emissive
-   * glow seeds from it — then the RGB light and water fields, each diffed against the
-   * previous field (all sub-10 ms here). A chunk must remesh if its geometry, a settled
-   * cell, the light at a face's open cell, its water, or its lava changed — for each such
-   * cell that is exactly `chunksAffectedByEdit(cell)`, so we union it over the edit and
-   * every changed cell, then rebuild both meshes there.
+   * gravity, reaction, lighting, water, OR lava. First loose blocks settle: `settle` drops
+   * any sand/gravel the edit left unsupported, and the moved cells are applied to the world
+   * and folded into the remesh union (settle runs BEFORE the field recomputes so those
+   * reflect the fallen blocks). Then the water↔lava REACTION runs to quiescence
+   * (`reactFully`: lava touched by water turns to obsidian/stone — a world mutation, like
+   * settle). The lava field is recomputed next — BEFORE light, whose emissive glow seeds
+   * from it — then the RGB light and water fields, each diffed against the previous field
+   * (all sub-10 ms here). A chunk must remesh if its geometry, a settled or reacted cell,
+   * the light at a face's open cell, its water, or its lava changed — for each such cell
+   * that is exactly `chunksAffectedByEdit(cell)`, so we union it over the edit and every
+   * changed cell, then rebuild both meshes there.
    */
   rebuildAround(x: number, y: number, z: number): void {
     // Gravity: settle loose blocks the edit may have unsupported, apply the moves in place,
@@ -145,6 +148,16 @@ export class ChunkedTerrain {
       if (settled.data[i] !== this.world.data[i]) {
         gravityChanged.push(i);
         this.world.data[i] = settled.data[i];
+      }
+
+    // Reaction: where the edit brought lava and water into contact, rock forms
+    // (sources → obsidian, tongues → stone), iterated to quiescence.
+    const reacted = reactFully(this.world);
+    const reactionChanged: number[] = [];
+    for (let i = 0; i < this.world.volume; i++)
+      if (reacted.data[i] !== this.world.data[i]) {
+        reactionChanged.push(i);
+        this.world.data[i] = reacted.data[i];
       }
 
     const nextLava = computeLava(this.world);
@@ -190,6 +203,7 @@ export class ChunkedTerrain {
 
     consider(x, y, z); // the geometry edit itself
     for (const i of gravityChanged) considerIndex(i);
+    for (const i of reactionChanged) considerIndex(i);
     for (const i of lavaChanged) considerIndex(i);
     for (const i of lightChanged) considerIndex(i);
     for (const i of waterChanged) considerIndex(i);

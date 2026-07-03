@@ -30,6 +30,7 @@ export const Block = {
   Water: 13,
   Glowstone: 14,
   Lava: 15,
+  Obsidian: 16,
 } as const;
 
 export type BlockKey = keyof typeof Block;
@@ -191,6 +192,14 @@ export const BLOCKS: Readonly<Record<BlockId, BlockDef>> = {
     emission: 15,
     emissionColor: rgb(255, 150, 40), // molten orange: R full so red reduces to scalar
     color: rgb(207, 80, 16),
+  },
+  [Block.Obsidian]: {
+    id: Block.Obsidian,
+    name: "Obsidian",
+    solid: true, // quenched lava SOURCE (the water↔lava reaction, #117)
+    opaque: true,
+    emission: 0,
+    color: rgb(21, 18, 29),
   },
 };
 

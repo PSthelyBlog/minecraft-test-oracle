@@ -29,12 +29,13 @@ export const Tile = {
   Bedrock: 13,
   Water: 14,
   Glowstone: 15,
+  Obsidian: 16,
 } as const;
 
 export type TileIndex = (typeof Tile)[keyof typeof Tile];
 
 /** Number of tiles (= texture-array layers). */
-export const TILE_COUNT = 16;
+export const TILE_COUNT = 17;
 
 function rgb(r: number, g: number, b: number): readonly [number, number, number] {
   return [r / 255, g / 255, b / 255];
@@ -62,6 +63,7 @@ export const TILE_COLOR: Readonly<Record<TileIndex, readonly [number, number, nu
   [Tile.Bedrock]: rgb(40, 40, 40),
   [Tile.Water]: rgb(40, 90, 200),
   [Tile.Glowstone]: rgb(248, 226, 120),
+  [Tile.Obsidian]: rgb(21, 18, 29),
 };
 
 /** One tile per simple block; grass and log are overridden per-face below. */
@@ -80,6 +82,7 @@ const BLOCK_TILE: Readonly<Record<BlockId, TileIndex>> = {
   [Block.Bedrock]: Tile.Bedrock,
   [Block.Water]: Tile.Water,
   [Block.Glowstone]: Tile.Glowstone,
+  [Block.Obsidian]: Tile.Obsidian,
 };
 
 // Face indices match mesher's FACES order: 0=+X, 1=−X, 2=+Y, 3=−Y, 4=+Z, 5=−Z.

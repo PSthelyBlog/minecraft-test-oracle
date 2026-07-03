@@ -100,6 +100,14 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   cliffs and puddle, instead of flooding a cave system. Shares no code with `water.ts` so the
   subset differential between them stays independent. Oracle-tested (budget relaxation / subset vs
   water / inflow-witness / diamond + deep-shaft goldens / damming).
+- **`reaction.ts`** — `react(world, water, lava)` / `reactFully(world)`: the water↔lava
+  reaction (Classic rule). A lava cell that is water-touched (itself flooded or a face
+  neighbour is) turns to rock — a `Block.Lava` source quenches to **Obsidian**, the flowing
+  tongue crusts to **Stone**; water dominates and is never consumed. `reactFully` iterates
+  pass + field recompute to quiescence; the render runs it per edit (like `settle`), so the
+  two fluids never interpenetrate for long. Oracle-tested (independent water-dilation census /
+  quiescence / fluids-only-shrink metamorphic / water conservation / waterfall + sealing-wall
+  goldens).
 - **`gravity.ts`** — `settle(world)`: sand and gravel fall **straight down** onto support (the
   Classic rule; no sideways sliding), piling in their column — a pure whole-world → world transform.
   Only Sand/Gravel move; columns are independent, so the render re-settles just the edited column.

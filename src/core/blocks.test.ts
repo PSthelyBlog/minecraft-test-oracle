@@ -30,6 +30,7 @@ const FACETS: Record<number, { name: string; solid: boolean; opaque: boolean; em
     [Block.Water]: { name: "Water", solid: false, opaque: false, emission: 0 },
     [Block.Glowstone]: { name: "Glowstone", solid: true, opaque: true, emission: 15 },
     [Block.Lava]: { name: "Lava", solid: false, opaque: false, emission: 15 },
+    [Block.Obsidian]: { name: "Obsidian", solid: true, opaque: true, emission: 0 },
   };
 
 describe("blocks oracle", () => {
@@ -87,7 +88,7 @@ describe("blocks oracle", () => {
         h = Math.imul(h, 0x01000193);
       }
     }
-    expect((h >>> 0).toString(16)).toBe("d96fe4cc");
+    expect((h >>> 0).toString(16)).toBe("78953c82");
   });
 
   // TOTALITY: unknown ids fall back to Air rather than throwing or returning undefined.
