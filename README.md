@@ -18,7 +18,7 @@ proven to actually catch bugs via **mutation testing**.
 npm install
 npm run hooks:install  # once — installs the pre-push mutation gate (see below)
 npm run dev        # play at http://localhost:5173
-npm test           # 218 oracle tests (Vitest + fast-check)
+npm test           # 229 oracle tests (Vitest + fast-check)
 npm run mutation   # StrykerJS — proves the oracles are falsifiable
 npm run smoke      # headless-Chromium boot/render check (needs a dev/preview server)
 ```
@@ -63,7 +63,7 @@ src/core/      pure, dependency-free, oracle-tested logic
   lava.ts        lava flow: the same flood, bounded to 3 horizontal steps (falls are free)
   reaction.ts    water↔lava contact turns to rock: sources → obsidian, tongues → stone
   gravity.ts     sand/gravel settle straight down (deterministic, feet-on-support)
-  waterMesh.ts   translucent water surface mesh (the visible water pass)
+  fluidMesh.ts   fluid surface mesh over a presence field (water translucent, lava opaque)
   medium.ts      what medium an observer is in (air/water/lava/solid) → fog & atmosphere
   terrain.ts     deterministic seeded terrain generation
   physics.ts     AABB vs voxel-grid collision, resolved per axis

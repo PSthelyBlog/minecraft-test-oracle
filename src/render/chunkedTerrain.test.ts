@@ -6,6 +6,7 @@ import { Block, emissionOf, emissionColorOf } from "../core/blocks";
 import { buildMesh, buildGreedyChunkMesh } from "../core/mesher";
 import { computeLightRGB } from "../core/light";
 import { computeLava } from "../core/lava";
+import { buildFluidChunkMesh } from "../core/fluidMesh";
 import { ChunkedTerrain } from "./chunkedTerrain";
 
 /**
@@ -24,6 +25,7 @@ import { ChunkedTerrain } from "./chunkedTerrain";
 
 const MAT = new MeshBasicMaterial();
 const WATER_MAT = new MeshBasicMaterial({ transparent: true });
+const LAVA_MAT = new MeshBasicMaterial();
 
 const normalToDir = (nx: number, ny: number, nz: number): number =>
   nx === 1 ? 0 : nx === -1 ? 1 : ny === 1 ? 2 : ny === -1 ? 3 : nz === 1 ? 4 : 5;
@@ -87,7 +89,7 @@ describe("ChunkedTerrain oracle", () => {
     w.set(18, 5, 2, Block.Glass);
     w.set(10, 8, 17, Block.Leaves);
     for (let x = 0; x < 20; x++) w.set(x, 0, x % 20, Block.Grass);
-    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 16);
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, LAVA_MAT, 16);
     expect(groupFaceKeys(terrain)).toEqual(wholeFaceKeys(w));
   });
 
@@ -108,7 +110,7 @@ describe("ChunkedTerrain oracle", () => {
         (cells, edits, chunkSize) => {
           const w = new World(5, 5, 5);
           cells.forEach((b, i) => (w.data[i] = b));
-          const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, chunkSize);
+          const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, LAVA_MAT, chunkSize);
 
           for (const { flat, id: newId } of edits) {
             const x = flat % 5,
@@ -132,7 +134,7 @@ describe("ChunkedTerrain oracle", () => {
     const w = new World(5, 6, 5);
     for (let z = 0; z < 5; z++) for (let x = 0; x < 5; x++) w.set(x, 0, z, Block.Stone); // floor
     w.set(2, 4, 2, Block.Sand); // a sand block floating three cells above the floor
-    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, LAVA_MAT, 4);
     expect(w.get(2, 4, 2)).toBe(Block.Sand); // not settled yet (constructor doesn't settle)
 
     terrain.rebuildAround(2, 4, 2); // the edit's downstream settle
@@ -144,7 +146,7 @@ describe("ChunkedTerrain oracle", () => {
 
   // An all-air world produces no draw calls (every chunk empty → no child meshes).
   test("empty world adds no chunk meshes", () => {
-    const terrain = new ChunkedTerrain(new World(16, 16, 16), MAT, WATER_MAT, 8);
+    const terrain = new ChunkedTerrain(new World(16, 16, 16), MAT, WATER_MAT, LAVA_MAT, 8);
     expect(terrain.group.children.length).toBe(0);
   });
 
@@ -154,7 +156,7 @@ describe("ChunkedTerrain oracle", () => {
   test("rebuildAround keeps lavaField equal to a from-scratch computeLava", () => {
     const w = new World(5, 5, 5);
     for (let z = 0; z < 5; z++) for (let x = 0; x < 5; x++) w.set(x, 0, z, Block.Stone);
-    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, LAVA_MAT, 4);
     expect(Array.from(terrain.lavaField)).toEqual(Array.from(computeLava(w))); // fresh build
 
     w.set(2, 1, 2, Block.Lava); // pour: the tongue floods the floor
@@ -180,7 +182,7 @@ describe("ChunkedTerrain oracle", () => {
         w.set(x, 3, z, Block.Stone); // roof: kills skylight, so only the glow lights the room
       }
     w.set(1, 1, 1, Block.Lava); // source; its tongue floods the floor around it
-    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 8); // one 8-chunk = the whole world
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, LAVA_MAT, 8); // one 8-chunk = the whole world
 
     const lava = computeLava(w);
     const glow = {
@@ -197,6 +199,31 @@ describe("ChunkedTerrain oracle", () => {
     expect(Array.from(lit.colors)).not.toEqual(Array.from(unlit.colors)); // the glow is visible
   });
 
+  // LAVA PASS (#118): the lavaGroup's chunk geometry is byte-identical to the
+  // independently-composed core truth — buildFluidChunkMesh over the lava field with
+  // Block.Lava's tile, shaded by the glow-lit light — and non-empty, so a dropped pass
+  // or a wrong field/tile/light parameter cannot pass silently.
+  test("lavaGroup draws exactly the lava field's visible surface", () => {
+    const w = new World(8, 4, 8);
+    for (let z = 0; z < 8; z++) for (let x = 0; x < 8; x++) w.set(x, 0, z, Block.Stone); // floor
+    w.set(3, 1, 3, Block.Lava); // pool; the tongue floods the floor around it
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, LAVA_MAT, 8); // one 8-chunk world
+
+    const lava = computeLava(w);
+    const glow = {
+      field: lava,
+      emission: emissionOf(Block.Lava),
+      color: emissionColorOf(Block.Lava),
+    };
+    const expected = buildFluidChunkMesh(w, lava, computeLightRGB(w, glow), Block.Lava, 0, 0, 0, 8);
+    expect(expected.faceCount).toBeGreaterThan(0);
+    expect(terrain.lavaGroup.children.length).toBe(1);
+    const geo = (terrain.lavaGroup.children[0] as Mesh).geometry;
+    expect(Array.from(geo.getAttribute("position").array)).toEqual(Array.from(expected.positions));
+    expect(Array.from(geo.getAttribute("color").array)).toEqual(Array.from(expected.colors));
+    expect(Array.from(geo.getAttribute("layer").array)).toEqual(Array.from(expected.layers));
+  });
+
   // REACTION INTEGRATION (#117): an edit that brings water into contact with lava must
   // react in the same rebuild — the world is mutated (sources → obsidian, the tongue →
   // stone), the water source survives, and the scene equals a full mesh of the reacted
@@ -205,10 +232,17 @@ describe("ChunkedTerrain oracle", () => {
     const w = new World(7, 4, 7);
     for (let z = 0; z < 7; z++) for (let x = 0; x < 7; x++) w.set(x, 0, z, Block.Stone); // floor
     w.set(3, 1, 3, Block.Lava); // a lava pool, tongue flooding the floor
-    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+    const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, LAVA_MAT, 4);
 
     w.set(3, 2, 3, Block.Water); // the edit: pour water right on top of the source
-    terrain.rebuildAround(3, 2, 3);
+    const reacted = terrain.rebuildAround(3, 2, 3);
+
+    // The reported reaction cells are exactly the converted ones (the shell's quench
+    // puffs appear exactly where rock formed).
+    const reportedKeys = reacted.map((c) => c.join(",")).sort();
+    expect(reportedKeys).toContain("3,1,3"); // the source
+    for (const [rx, ry, rz] of reacted)
+      expect([Block.Obsidian, Block.Stone]).toContain(w.get(rx, ry, rz));
 
     expect(w.get(3, 1, 3)).toBe(Block.Obsidian); // the source quenched
     expect(w.get(5, 1, 3)).toBe(Block.Stone); // the tongue crusted (was flooded Air)
@@ -224,7 +258,7 @@ describe("ChunkedTerrain oracle", () => {
   test("incremental edits leave chunks byte-identical to a from-scratch build", () => {
     const id = fc.constantFrom(Block.Air, Block.Stone, Block.Lava, Block.Water);
     const serialize = (terrain: ChunkedTerrain): string[] =>
-      [...terrain.group.children, ...terrain.waterGroup.children]
+      [...terrain.group.children, ...terrain.waterGroup.children, ...terrain.lavaGroup.children]
         .map((child) => {
           const geo = (child as Mesh).geometry;
           return ["position", "color", "layer"]
@@ -238,7 +272,7 @@ describe("ChunkedTerrain oracle", () => {
         (edits) => {
           const w = new World(5, 5, 5);
           for (let z = 0; z < 5; z++) for (let x = 0; x < 5; x++) w.set(x, 4, z, Block.Stone); // roof
-          const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+          const terrain = new ChunkedTerrain(w, MAT, WATER_MAT, LAVA_MAT, 4);
           for (const { flat, id: newId } of edits) {
             const x = flat % 5,
               z = Math.floor(flat / 5) % 5,
@@ -246,7 +280,7 @@ describe("ChunkedTerrain oracle", () => {
             w.set(x, y, z, newId);
             terrain.rebuildAround(x, y, z);
           }
-          const fresh = new ChunkedTerrain(w, MAT, WATER_MAT, 4);
+          const fresh = new ChunkedTerrain(w, MAT, WATER_MAT, LAVA_MAT, 4);
           expect(serialize(terrain)).toEqual(serialize(fresh));
         },
       ),

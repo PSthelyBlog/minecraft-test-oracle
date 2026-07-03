@@ -216,6 +216,8 @@ export const HOTBAR: readonly BlockId[] = [
   Block.Glass,
   Block.Brick,
   Block.Glowstone,
+  Block.Water, // both fluids are placeable (v0.7): pour, flood, react
+  Block.Lava,
 ];
 
 export function blockDef(id: BlockId): BlockDef {

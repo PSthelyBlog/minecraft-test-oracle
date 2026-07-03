@@ -27,10 +27,19 @@ export function buildTerrainMaterial(): MeshLambertMaterial {
 /**
  * The translucent water material — same tile-array sampling and per-vertex shading as
  * terrain, but alpha-blended (and `depthWrite` off so the water surface doesn't occlude
- * the geometry behind it). Drawn as a separate pass over the water mesh.
+ * the geometry behind it). Drawn as a separate pass over the water fluid mesh.
  */
 export function buildWaterMaterial(): MeshLambertMaterial {
   return buildTileArrayMaterial({ transparent: true, opacity: 0.72, depthWrite: false });
+}
+
+/**
+ * The lava material — opaque, unlike water: you cannot see into or through lava. Same
+ * tile-array sampling; the molten look comes from the lava tile plus the fluid mesh's
+ * vertex colours, which carry the field's own full-bright emissive light (#114/#116).
+ */
+export function buildLavaMaterial(): MeshLambertMaterial {
+  return buildTileArrayMaterial({});
 }
 
 interface TileArrayOpts {

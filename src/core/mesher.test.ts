@@ -117,6 +117,20 @@ describe("mesher oracle", () => {
     expect(buildMesh(submerged).faceCount).toBe(6); // all six stone faces still show
   });
 
+  // EXCLUSION: lava too (#118) — its field is drawn by the fluid pass, so the terrain
+  // mesher emits NO geometry for a Lava cell, and like water it stays non-opaque, so a
+  // lava neighbour doesn't cull the rock behind it.
+  test("lava blocks are excluded from the terrain mesh but still reveal neighbours", () => {
+    const lone = new World(3, 3, 3);
+    lone.set(1, 1, 1, Block.Lava);
+    expect(buildMesh(lone).faceCount).toBe(0); // lava itself contributes nothing
+
+    const beside = new World(3, 3, 3);
+    beside.set(1, 1, 1, Block.Stone);
+    beside.set(2, 1, 1, Block.Lava); // a lava neighbour does not cull the stone's +X face
+    expect(buildMesh(beside).faceCount).toBe(6); // all six stone faces still show
+  });
+
   // CENSUS: the mesher's face count equals the independent definition for any world.
   test("face count matches the independent neighbour census", () => {
     const id = fc.constantFrom(Block.Air, Block.Stone, Block.Glass, Block.Leaves, Block.Grass);
