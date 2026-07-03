@@ -37,6 +37,10 @@ describe("atlas oracle", () => {
     const stone = new Set([0, 1, 2, 3, 4, 5].map((f) => tileIndexFor(Block.Stone, f)));
     expect(stone).toEqual(new Set([Tile.Stone]));
     expect(tileIndexFor(Block.Brick, 2)).not.toBe(tileIndexFor(Block.Stone, 2));
+    // obsidian (the reaction's quenched-source product) has its own tile — the two
+    // reaction products must be visually distinct, not both stone-grey.
+    expect(tileIndexFor(Block.Obsidian, 2)).toBe(Tile.Obsidian);
+    expect(tileIndexFor(Block.Obsidian, 2)).not.toBe(tileIndexFor(Block.Stone, 2));
   });
 
   // INJECTION (static-data falsifiability): the tile colours are distinct enough that

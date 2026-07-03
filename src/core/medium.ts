@@ -103,8 +103,9 @@ export function mediumDef(id: MediumId): MediumDef {
  * A total, disjoint 4-way partition: `Lava` if the cell is molten, else `Water` if
  * flooded, else `Solid` if the block collides, else `Air`. Neither flood ever enters a
  * solid cell (a property of `computeWater`/`computeLava` the oracles check independently,
- * not assumed), but the two fluids CAN overlap on shared reachable air until the
- * water↔lava reaction lands — **lava wins**: it is the louder, more dangerous signal.
+ * not assumed), but the two fluids CAN still overlap transiently — in a freshly loaded
+ * world the reaction hasn't visited, or mid-edit before `reactFully` runs (#117) — and
+ * there **lava wins**: it is the louder, more dangerous signal.
  * Out of bounds reads as `Air` — the world edge is open sky, matching `world.get` (Air)
  * and the dry-edge convention of both fields.
  */

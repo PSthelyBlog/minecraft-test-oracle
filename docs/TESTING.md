@@ -8,7 +8,7 @@ proves those oracles actually catch bugs.
 ## Commands
 
 ```bash
-npm test            # run all 209 oracle tests once (Vitest)
+npm test            # run all 218 oracle tests once (Vitest)
 npm run test:watch  # watch mode
 npm run mutation       # StrykerJS — mutate the core, report which mutants survive (fast, incremental)
 npm run mutation:clean # same, but wipe the incremental cache first → authoritative score (see below)
@@ -140,12 +140,13 @@ why `mutation:clean` and not `mutation`). As of this base implementation:
 | `mesher.ts`      |           ~96% | chunked + greedy, tile-local UV/layer, AO, RGB light; 18 equivalent survivors           |
 | `terrain.ts`     |         ~94.5% | incl. deterministic trees; equivalent loop/cell-grid bounds + a measure-zero gate       |
 | `raycast.ts`     |           ~92% | degenerate conventions now pinned; 9 equivalent survivors (see below)                   |
+| `reaction.ts`    |           ~92% | water↔lava → obsidian/stone; dilation census + quiescence; 5 equivalent (below)         |
 | `persistence.ts` |           ~91% | RLE save/load round-trip; 6 equivalent survivors (loop bounds + messages)               |
 | `water.ts`       |           ~86% | flood fill (reachability/relaxation/inflow-witness); all 6 survivors equivalent (below) |
 | `gravity.ts`     |           ~86% | sand/gravel settle; conservation/no-floating/column-independence; 5 equivalent (below)  |
 | `lava.ts`        |           ~85% | bounded flood (budget relaxation/subset-vs-water/goldens); 9 equivalent (below)         |
 | `light.ts`       |         ~83.5% | block/sky/combined + RGB channels + emissive field; all 26 survivors equivalent (below) |
-| **overall**      |     **~94.0%** | 209 tests across 21 files                                                               |
+| **overall**      |     **~94.0%** | 218 tests across 22 files                                                               |
 
 The Stryker thresholds (`stryker.config.json`) are `break: 70`, `low: 80`, `high: 90`. A run
 below 70 exits non-zero — which aborts the local `pre-push` hook (and fails the push-to-`main`
@@ -379,6 +380,23 @@ size` → `<=`) and the combine **loop bound** (`i < r.length` → `<=`) read on
     never-rises/inflow-witness oracles, and the budget mutants that _move the boundary_ (seed
     `RANGE + 1`, the `b − 1` charge) are killed by the diamond golden — confirming the oracle's
     directional and metric strength.
+- **`reaction.ts` survivors (5, all equivalent).** The water↔lava reaction converts every
+  water-touched lava cell to rock (sources → Obsidian, tongues → Stone; `Block.Water` never
+  consumed). Pinned by an **independent water-dilation census** (a different mechanism from the
+  source's per-cell neighbour probe), a **synthetic-fields contract case** (a lone cell holding
+  both fluids reacts with no neighbour — added to kill the self-flooded-check mutant, which was
+  only _conditionally_ equivalent: `computeWater`'s inflow-witness property makes the check
+  redundant for real fields, but `react` takes the fields as given), **quiescence**, a
+  fluids-only-shrink metamorphic, water conservation, and waterfall/sealing-wall goldens. The
+  five that remain are known classes, confirmed **byte-identical over 20 000 random worlds**,
+  each in isolation:
+  - _`waterTouched` neighbour-offset signs_ (`x + dx` → `x − dx` ×3): `NEIGHBORS` lists every
+    axis as both `+1` and `−1`, and contact is an OR over the set, so flipping a sign probes the
+    same six neighbours in a different order (the symmetric-offset class).
+  - _the scan + diff loop bounds_ (`y < sizeY` → `<=` in `react`, `i < data.length` → `<=` in
+    `reactFully`'s change check): the extra iteration reads past the array — `lava[i] ===
+undefined ≠ 1` skips, and `undefined !== undefined` is false — a no-op (the shared
+    loop-bound class).
 - **`gravity.ts` survivors (5, all equivalent).** `settle` drops loose blocks (Sand/Gravel)
   straight down onto support, per column. Pinned by a **per-id conservation census**, a
   **no-floating** invariant, **per-column conservation** (no sideways flow), **idempotence**, a
