@@ -105,7 +105,7 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   Only Sand/Gravel move; columns are independent, so the render re-settles just the edited column.
   Oracle-tested (conservation census / no-floating invariant / column independence / idempotence).
 - **`medium.ts`** — `mediumAt(world, water, lava, x,y,z)` / `mediumAtPoint(world, water, lava,
-  point)`: the medium an **observer** is immersed in (`Air`/`Water`/`Lava`/`Solid`), as distinct
+point)`: the medium an **observer** is immersed in (`Air`/`Water`/`Lava`/`Solid`), as distinct
   from the block in a cell — a total, disjoint 4-way partition (molten → `Lava`, else flooded →
   `Water`, else solid → `Solid`, else `Air`; OOB → `Air`; where the fluids overlap, **lava
   wins**). A `MEDIA` registry (like `blocks.ts`) carries each medium's fog colour/near/far and a
