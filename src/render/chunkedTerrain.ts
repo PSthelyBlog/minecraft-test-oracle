@@ -1,13 +1,14 @@
 /**
  * Renders a World as a grid of per-chunk meshes so a block edit rebuilds only
- * the chunk(s) it touches, not the whole world. Each chunk has TWO meshes: the
- * opaque terrain (solid blocks) and the translucent water surface, in separate
- * groups so the water can draw in its own alpha-blended pass.
+ * the chunk(s) it touches, not the whole world. Each chunk has THREE meshes: the
+ * opaque terrain (solid blocks), the translucent water surface, and the opaque
+ * lava surface, in separate groups so each fluid draws in its own pass.
  *
  * This is thin Three.js wiring — all the real logic (which cells a chunk owns,
- * how seams are culled, which chunks an edit affects, light + water fields) lives in
- * the oracle-tested core (`mesher.ts`, `light.ts`, `water.ts`, `waterMesh.ts`). The
- * round-trip is pinned by `chunkedTerrain.test.ts`; the look by the smoke test.
+ * how seams are culled, which chunks an edit affects, light + fluid fields, the
+ * gravity/reaction world rules) lives in the oracle-tested core (`mesher.ts`,
+ * `light.ts`, `water.ts`, `lava.ts`, `fluidMesh.ts`, `gravity.ts`, `reaction.ts`).
+ * The round-trip is pinned by `chunkedTerrain.test.ts`; the look by the smoke test.
  */
 
 import { Group, Mesh, type Material } from "three";
@@ -19,7 +20,7 @@ import { computeLava } from "../core/lava";
 import { Block, emissionOf, emissionColorOf } from "../core/blocks";
 import { settle } from "../core/gravity";
 import { reactFully } from "../core/reaction";
-import { buildWaterChunkMesh } from "../core/waterMesh";
+import { buildFluidChunkMesh } from "../core/fluidMesh";
 import { geometryFromMesh } from "./chunkGeometry";
 
 export class ChunkedTerrain {
@@ -27,10 +28,13 @@ export class ChunkedTerrain {
   readonly group = new Group();
   /** Translucent water meshes (add to the scene; drawn in its own alpha pass). */
   readonly waterGroup = new Group();
+  /** Opaque lava meshes (add to the scene; the molten surface of the lava field). */
+  readonly lavaGroup = new Group();
 
   private readonly dims: { nx: number; ny: number; nz: number };
   private readonly meshes: (Mesh | null)[]; // one terrain slot per chunk; null = empty
   private readonly waterMeshes: (Mesh | null)[]; // one water slot per chunk; null = no water
+  private readonly lavaMeshes: (Mesh | null)[]; // one lava slot per chunk; null = no lava
   // Combined RGB light + the water and lava presence fields, each recomputed and diffed
   // per edit (all sub-10 ms on this world, so the per-edit recompute is imperceptible —
   // see the incremental discussion in #86). The mesher dims faces by `light`; the water
@@ -45,12 +49,14 @@ export class ChunkedTerrain {
     private readonly world: World,
     private readonly material: Material,
     private readonly waterMaterial: Material,
+    private readonly lavaMaterial: Material,
     private readonly chunkSize: number = CHUNK_SIZE,
   ) {
     this.dims = chunkDims(world, chunkSize);
     const n = this.dims.nx * this.dims.ny * this.dims.nz;
     this.meshes = new Array(n).fill(null);
     this.waterMeshes = new Array(n).fill(null);
+    this.lavaMeshes = new Array(n).fill(null);
     this.lava = computeLava(world); // before light: the glow seeds from this field
     this.light = computeLightRGB(world, this.lavaGlow());
     this.water = computeWater(world);
@@ -59,6 +65,7 @@ export class ChunkedTerrain {
         for (let cx = 0; cx < this.dims.nx; cx++) {
           this.buildChunk(cx, cy, cz);
           this.buildWaterChunk(cx, cy, cz);
+          this.buildLavaChunk(cx, cy, cz);
         }
   }
 
@@ -110,10 +117,11 @@ export class ChunkedTerrain {
       old.geometry.dispose();
       this.waterMeshes[i] = null;
     }
-    const mesh = buildWaterChunkMesh(
+    const mesh = buildFluidChunkMesh(
       this.world,
       this.water,
       this.light,
+      Block.Water,
       cx,
       cy,
       cz,
@@ -123,6 +131,31 @@ export class ChunkedTerrain {
     const m = new Mesh(geometryFromMesh(mesh), this.waterMaterial);
     this.waterMeshes[i] = m;
     this.waterGroup.add(m);
+  }
+
+  /** (Re)build a chunk's opaque lava mesh, disposing whatever was there before. */
+  private buildLavaChunk(cx: number, cy: number, cz: number): void {
+    const i = this.slot(cx, cy, cz);
+    const old = this.lavaMeshes[i];
+    if (old) {
+      this.lavaGroup.remove(old);
+      old.geometry.dispose();
+      this.lavaMeshes[i] = null;
+    }
+    const mesh = buildFluidChunkMesh(
+      this.world,
+      this.lava,
+      this.light,
+      Block.Lava,
+      cx,
+      cy,
+      cz,
+      this.chunkSize,
+    );
+    if (mesh.faceCount === 0) return; // no lava in this chunk → no draw call
+    const m = new Mesh(geometryFromMesh(mesh), this.lavaMaterial);
+    this.lavaMeshes[i] = m;
+    this.lavaGroup.add(m);
   }
 
   /**
@@ -137,9 +170,10 @@ export class ChunkedTerrain {
    * (all sub-10 ms here). A chunk must remesh if its geometry, a settled or reacted cell,
    * the light at a face's open cell, its water, or its lava changed — for each such cell
    * that is exactly `chunksAffectedByEdit(cell)`, so we union it over the edit and every
-   * changed cell, then rebuild both meshes there.
+   * changed cell, then rebuild all three meshes there. Returns the coordinates of the
+   * cells the REACTION converted, so the shell can play a quench effect at them.
    */
-  rebuildAround(x: number, y: number, z: number): void {
+  rebuildAround(x: number, y: number, z: number): [number, number, number][] {
     // Gravity: settle loose blocks the edit may have unsupported, apply the moves in place,
     // and record the changed cells so their chunks remesh too.
     const settled = settle(this.world);
@@ -211,6 +245,13 @@ export class ChunkedTerrain {
     for (const [cx, cy, cz] of toBuild) {
       this.buildChunk(cx, cy, cz);
       this.buildWaterChunk(cx, cy, cz);
+      this.buildLavaChunk(cx, cy, cz);
     }
+
+    return reactionChanged.map((i) => [
+      i % sizeX,
+      Math.floor(i / (sizeX * sizeZ)),
+      Math.floor(i / sizeX) % sizeZ,
+    ]);
   }
 }

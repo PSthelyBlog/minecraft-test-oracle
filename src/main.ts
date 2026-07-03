@@ -20,6 +20,9 @@ import {
   LineSegments,
   LineBasicMaterial,
   SRGBColorSpace,
+  Mesh,
+  SphereGeometry,
+  MeshBasicMaterial,
 } from "three";
 
 import { World } from "./core/world";
@@ -31,7 +34,11 @@ import { boxIntersectsSolid } from "./core/physics";
 import { mediumAtPoint, mediumDef } from "./core/medium";
 import { directionFromYawPitch, type Vec3 } from "./core/math";
 import { ChunkedTerrain } from "./render/chunkedTerrain";
-import { buildTerrainMaterial, buildWaterMaterial } from "./render/terrainMaterial";
+import {
+  buildTerrainMaterial,
+  buildWaterMaterial,
+  buildLavaMaterial,
+} from "./render/terrainMaterial";
 import { selfCheck } from "./core/selfcheck";
 import { stepMovement, type PlayerState, type MovementTuning } from "./game/movement";
 
@@ -118,9 +125,11 @@ const BASE_SUN = sun.intensity; //  medium's lightMultiplier scales relative to 
 // texel × that baked vertex colour (× the scene's hemisphere/sun lights).
 const terrainMaterial = buildTerrainMaterial();
 const waterMaterial = buildWaterMaterial();
-const terrain = new ChunkedTerrain(world, terrainMaterial, waterMaterial);
+const lavaMaterial = buildLavaMaterial();
+const terrain = new ChunkedTerrain(world, terrainMaterial, waterMaterial, lavaMaterial);
 scene.add(terrain.group);
 scene.add(terrain.waterGroup);
+scene.add(terrain.lavaGroup);
 
 // Block-selection highlight (wireframe cube).
 const highlight = new LineSegments(
@@ -245,7 +254,7 @@ function breakBlock(b: Vec3): void {
   const [x, y, z] = b;
   if (world.get(x, y, z) === Block.Bedrock) return; // Classic: bedrock is permanent
   if (world.set(x, y, z, Block.Air)) {
-    terrain.rebuildAround(x, y, z);
+    for (const cell of terrain.rebuildAround(x, y, z)) spawnQuenchPuff(cell);
     scheduleSave();
   }
 }
@@ -259,8 +268,53 @@ function placeBlock(p: Vec3): void {
     world.set(x, y, z, Block.Air); // undo
     return;
   }
-  terrain.rebuildAround(x, y, z);
+  for (const cell of terrain.rebuildAround(x, y, z)) spawnQuenchPuff(cell);
   scheduleSave();
+}
+
+// ---------------------------------------------------------------------------
+// Quench puffs — a brief steam wisp where the water↔lava reaction converted a cell.
+// Pure shell cosmetics on the frame clock: a small translucent sphere that rises,
+// grows, and fades over ~0.6 s, then is removed and disposed. (The reaction itself is
+// deterministic core logic; this only visualises the cells rebuildAround reports.)
+// ---------------------------------------------------------------------------
+const PUFF_LIFE = 0.6; // seconds
+const puffGeometry = new SphereGeometry(0.3, 8, 6); // one shared geometry for all puffs
+interface Puff {
+  mesh: Mesh;
+  mat: MeshBasicMaterial;
+  age: number;
+}
+const puffs: Puff[] = [];
+
+function spawnQuenchPuff([x, y, z]: [number, number, number]): void {
+  const mat = new MeshBasicMaterial({
+    color: 0xe8e8e8,
+    transparent: true,
+    opacity: 0.7,
+    depthWrite: false,
+  });
+  const mesh = new Mesh(puffGeometry, mat);
+  mesh.position.set(x + 0.5, y + 0.9, z + 0.5); // just above the converted cell
+  scene.add(mesh);
+  puffs.push({ mesh, mat, age: 0 });
+}
+
+function updatePuffs(dt: number): void {
+  for (let i = puffs.length - 1; i >= 0; i--) {
+    const p = puffs[i];
+    p.age += dt;
+    const t = p.age / PUFF_LIFE;
+    if (t >= 1) {
+      scene.remove(p.mesh);
+      p.mat.dispose(); // geometry is shared; only the per-puff material is disposed
+      puffs.splice(i, 1);
+      continue;
+    }
+    p.mesh.position.y += dt * 0.8; // steam rises...
+    p.mesh.scale.setScalar(1 + t); // ...expands...
+    p.mat.opacity = 0.7 * (1 - t); // ...and thins out
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +416,7 @@ function frame(now: number): void {
   updateCamera();
   updateAtmosphere();
   updateHighlight();
+  updatePuffs(dt);
   renderer.render(scene, camera);
 
   frames++;

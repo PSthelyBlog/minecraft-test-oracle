@@ -89,11 +89,13 @@ dumb: it wires inputs to the core and uploads the core's output to the GPU.
   floods into non-solid cells sideways and downward, never up or into solids — so it fills reachable
   gaps and lies flat, the least fixpoint of that rule. Oracle-tested core (independent reachability
   relaxation / fixpoint / inflow-witness invariant / damming / goldens).
-- **`waterMesh.ts`** — `buildWaterMesh` / `buildWaterChunkMesh`: the translucent water pass. A
-  watered cell emits a cube; a face shows only where it meets open air (water-vs-water and
-  buried faces culled), shaded `faceShade × lightFactor`. `ChunkedTerrain` draws it in a separate
-  `waterGroup` with an alpha-blended material; the opaque terrain mesher skips `Block.Water`
-  (`rendersInTerrain`). Pinned by a where/shade/winding census suite (100% mutation score).
+- **`fluidMesh.ts`** — `buildFluidMesh` / `buildFluidChunkMesh`: the fluid pass, parameterised
+  over which fluid (presence field + block tile). A fluid cell emits a cube; a face shows only
+  where it meets open air (same-fluid and buried faces culled), shaded
+  `faceShade × lightFactor`. `ChunkedTerrain` draws water in an alpha-blended `waterGroup` and
+  lava in an opaque `lavaGroup`; the opaque terrain mesher skips `Block.Water` and `Block.Lava`
+  (`rendersInTerrain` — the fields are meshed, not the source blocks). Pinned by a
+  where/shade/tile/winding census suite run for both fluids (100% mutation score).
 - **`lava.ts`** — `computeLava(world)`: the second fluid, a **bounded** flood fill (a derived 0/1
   field like water's). `Block.Lava` cells are sources; lava spreads sideways/down, never up, with a
   budget of `LAVA_RANGE = 3` horizontal steps (a down step is free) — short tongues that pour down

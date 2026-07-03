@@ -1,28 +1,32 @@
 /**
- * Water mesh builder — the translucent counterpart of the terrain mesher.
+ * Fluid mesh builder — the fluid-surface counterpart of the terrain mesher,
+ * parameterised over WHICH fluid (water's or lava's presence field + block tile).
  *
- * Water is a derived PRESENCE field (0/1, see `water.ts`'s flood fill), not stored
- * blocks, so it gets its own geometry pass drawn in a transparent material. A water cell
- * emits a full unit cube; a face is shown only where the neighbour across it is open air
- * to look through — i.e. no water there and not opaque — so water-vs-water faces and
- * faces buried against rock are culled, leaving just the visible surface of each body.
+ * A fluid is a derived PRESENCE field (0/1, see `water.ts` / `lava.ts`), not stored
+ * blocks, so it gets its own geometry pass (water drawn translucent, lava opaque). A
+ * fluid cell emits a full unit cube; a face is shown only where the neighbour across
+ * it is open air to look through — i.e. not in the SAME field and not opaque — so
+ * fluid-vs-same-fluid faces and faces buried against rock are culled, leaving just
+ * the visible surface of each body. (The two fluids cull independently: where they
+ * transiently overlap pre-reaction, each still draws its own surface.)
  *
  * Faces share the terrain mesher's winding-verified `FACES`/`FACE_UV` tables and the
- * water atlas tile, and are shaded per channel `faceShade × lightFactor(light_c)` (no AO
- * — a fluid surface needs no corner darkening). This is oracle-tested against an
- * independent "where the visible water faces are" census, the shade, and outward winding.
+ * fluid block's atlas tile, and are shaded per channel `faceShade × lightFactor(light_c)`
+ * (no AO — a fluid surface needs no corner darkening). This is oracle-tested against an
+ * independent "where the visible fluid faces are" census, the shade, and outward
+ * winding — run for BOTH fluids.
  */
 
 import type { World } from "./world";
-import { Block, isOpaque } from "./blocks";
+import { type BlockId, isOpaque } from "./blocks";
 import { tileIndexFor } from "./atlas";
 import { MAX_LIGHT, type RGBLight } from "./light";
 import { FACES, FACE_UV, lightFactor, CHUNK_SIZE, type ChunkMesh } from "./mesher";
 
-/** Water level at a cell, with out-of-bounds (the world edge) reading as dry. */
-function waterAt(water: Uint8Array, world: World, x: number, y: number, z: number): number {
+/** Fluid presence at a cell, with out-of-bounds (the world edge) reading as dry. */
+function fluidAt(field: Uint8Array, world: World, x: number, y: number, z: number): number {
   if (!world.inBounds(x, y, z)) return 0;
-  return water[world.index(x, y, z)];
+  return field[world.index(x, y, z)];
 }
 
 /** RGB light at a cell for shading, with out-of-bounds (open sky) reading as full light. */
@@ -39,13 +43,14 @@ function lightAt(
 }
 
 /**
- * A water cell's face (in direction `fi`) is visible iff the neighbour across it is
- * open air to see through: it holds no water AND is not opaque. (Out of bounds reads
- * as dry, non-opaque air, so the world-edge face shows — like the solid mesher.)
+ * A fluid cell's face (in direction `fi`) is visible iff the neighbour across it is
+ * open air to see through: it is not in the same field AND is not opaque. (Out of
+ * bounds reads as dry, non-opaque air, so the world-edge face shows — like the solid
+ * mesher.)
  */
-export function isWaterFaceVisible(
+export function isFluidFaceVisible(
   world: World,
-  water: Uint8Array,
+  field: Uint8Array,
   x: number,
   y: number,
   z: number,
@@ -55,20 +60,22 @@ export function isWaterFaceVisible(
   const nx = x + n[0],
     ny = y + n[1],
     nz = z + n[2];
-  if (waterAt(water, world, nx, ny, nz) > 0) return false; // neighbour is water → internal face
+  if (fluidAt(field, world, nx, ny, nz) > 0) return false; // neighbour is the same fluid → internal face
   if (isOpaque(world.get(nx, ny, nz))) return false; // neighbour is rock → buried face
   return true;
 }
 
 /**
- * Mesh the water in the half-open box [x0,x1) × [y0,y1) × [z0,z1). Like the terrain
+ * Mesh the fluid in the half-open box [x0,x1) × [y0,y1) × [z0,z1). Like the terrain
  * mesher, it iterates only the box's cells but reads neighbours from the full world +
- * water field, so per-chunk water meshes are seam-correct. Vertices are world-space.
+ * field, so per-chunk fluid meshes are seam-correct. Vertices are world-space; every
+ * face samples the fluid block's tile.
  */
-function meshWaterRange(
+function meshFluidRange(
   world: World,
-  water: Uint8Array,
+  field: Uint8Array,
   light: RGBLight,
+  block: BlockId,
   x0: number,
   y0: number,
   z0: number,
@@ -87,12 +94,12 @@ function meshWaterRange(
   for (let y = y0; y < y1; y++) {
     for (let z = z0; z < z1; z++) {
       for (let x = x0; x < x1; x++) {
-        if (water[world.index(x, y, z)] === 0) continue; // no water in this cell
+        if (field[world.index(x, y, z)] === 0) continue; // no fluid in this cell
 
         for (let fi = 0; fi < FACES.length; fi++) {
-          if (!isWaterFaceVisible(world, water, x, y, z, fi)) continue;
+          if (!isFluidFaceVisible(world, field, x, y, z, fi)) continue;
           const f = FACES[fi];
-          const layer = tileIndexFor(Block.Water, fi);
+          const layer = tileIndexFor(block, fi);
           // Shade by the RGB light at the open cell the face looks into (same convention
           // as solid faces), per channel — no AO (a fluid surface needs no corner darkening).
           const [lr, lg, lb] = lightAt(light, world, x + f.normal[0], y + f.normal[1], z + f.normal[2]); // prettier-ignore
@@ -128,16 +135,22 @@ function meshWaterRange(
   };
 }
 
-/** Whole-world water mesh (the oracle reference the per-chunk union is checked against). */
-export function buildWaterMesh(world: World, water: Uint8Array, light: RGBLight): ChunkMesh {
-  return meshWaterRange(world, water, light, 0, 0, 0, world.sizeX, world.sizeY, world.sizeZ);
+/** Whole-world fluid mesh (the oracle reference the per-chunk union is checked against). */
+export function buildFluidMesh(
+  world: World,
+  field: Uint8Array,
+  light: RGBLight,
+  block: BlockId,
+): ChunkMesh {
+  return meshFluidRange(world, field, light, block, 0, 0, 0, world.sizeX, world.sizeY, world.sizeZ);
 }
 
-/** Water mesh for a single chunk (culling/shading against the full world, so seam-correct). */
-export function buildWaterChunkMesh(
+/** Fluid mesh for a single chunk (culling/shading against the full world, so seam-correct). */
+export function buildFluidChunkMesh(
   world: World,
-  water: Uint8Array,
+  field: Uint8Array,
   light: RGBLight,
+  block: BlockId,
   cx: number,
   cy: number,
   cz: number,
@@ -146,10 +159,11 @@ export function buildWaterChunkMesh(
   const x0 = cx * chunkSize;
   const y0 = cy * chunkSize;
   const z0 = cz * chunkSize;
-  return meshWaterRange(
+  return meshFluidRange(
     world,
-    water,
+    field,
     light,
+    block,
     x0,
     y0,
     z0,

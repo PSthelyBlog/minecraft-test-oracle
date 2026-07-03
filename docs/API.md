@@ -189,7 +189,7 @@ into the exact whole-world mesh — no seams. Vertices are emitted in **world** 
 each chunk's geometry sits at the origin.
 
 `Block.Water` contributes **no** terrain geometry (`rendersInTerrain` skips it) — water is
-drawn separately by `waterMesh.ts` as a translucent pass — but it stays non-opaque, so it still
+drawn separately by `fluidMesh.ts` as its own pass — but it stays non-opaque, so it still
 reveals the solid faces behind it (you see the lakebed).
 
 `buildGreedyMesh` / `buildGreedyChunkMesh` merge coplanar, adjacent faces that share a tile
@@ -221,7 +221,7 @@ n·size`); `chunksAffectedByEdit` reports every chunk an edit can change.
 ## `core/atlas.ts`
 
 ```ts
-const TILE_COUNT = 17
+const TILE_COUNT = 18
 const Tile = { Stone, GrassTop, GrassSide, Dirt, ... }   // tile slots = texture-array layers
 TILE_COLOR: Record<TileIndex, [r,g,b]>                    // base colour per tile (static)
 tileIndexFor(id: BlockId, faceIndex: number): TileIndex   // per-face tile (= layer) choice
@@ -373,24 +373,28 @@ transient fluid-overlap window `medium`'s lava-wins precedence covers.
 
 ---
 
-## `core/waterMesh.ts`
+## `core/fluidMesh.ts`
 
 ```ts
-buildWaterMesh(world, water, light): ChunkMesh                          // whole-world water surface
-buildWaterChunkMesh(world, water, light, cx, cy, cz, chunkSize?): ChunkMesh   // one chunk's water
-isWaterFaceVisible(world, water, x, y, z, fi): boolean
+buildFluidMesh(world, field, light, block): ChunkMesh                   // whole-world fluid surface
+buildFluidChunkMesh(world, field, light, block, cx, cy, cz, chunkSize?): ChunkMesh  // one chunk's
+isFluidFaceVisible(world, field, x, y, z, fi): boolean
 ```
 
-The translucent counterpart of the terrain mesher. A water cell (`water[c] > 0`) emits a full
-unit cube; a face shows only where the neighbour across it is open air (no water there and not
-opaque), so water-vs-water and buried-against-rock faces are culled. Faces reuse the terrain
-mesher's winding-verified `FACES`/`FACE_UV` and the water tile, shaded per channel
-`faceShade × lightFactor(light_c)` (RGB, no AO). Drawn in `buildWaterMaterial()` (the terrain
-material, alpha-blended, `depthWrite` off).
+The fluid-surface counterpart of the terrain mesher, parameterised over WHICH fluid: the presence
+field (`computeWater`'s or `computeLava`'s) plus the fluid block whose tile every face samples. A
+fluid cell (`field[c] > 0`) emits a full unit cube; a face shows only where the neighbour across
+it is open air (not in the **same** field and not opaque), so same-fluid and buried-against-rock
+faces are culled — the two fluids cull independently, so a transient pre-reaction overlap still
+draws both surfaces. Faces reuse the terrain mesher's winding-verified `FACES`/`FACE_UV`, shaded
+per channel `faceShade × lightFactor(light_c)` (RGB, no AO). Water draws in `buildWaterMaterial()`
+(alpha-blended, `depthWrite` off); lava in `buildLavaMaterial()` (opaque — you cannot see into
+lava; its molten look is the tile × the field's own emissive light).
 
-> Pinned by a **where-census** (faces appear exactly where a watered cell faces air, re-derived
-> from the field), a **shade census**, **outward winding**, and the per-chunk union census — every
-> mutant killed (100%).
+> Pinned by a **where-census** (faces appear exactly where a fluid cell faces air, re-derived from
+> the field), a **shade census**, a **tile census** (a swapped block parameter fails), **outward
+> winding**, goldens, and the per-chunk union census — the whole suite run for **both fluids**;
+> every mutant killed (100%).
 
 ---
 
@@ -638,18 +642,21 @@ class ChunkedTerrain {
     world: World,
     material: THREE.Material,
     waterMaterial: THREE.Material,
+    lavaMaterial: THREE.Material,
     chunkSize?: number,
   );
   readonly group: THREE.Group; // opaque terrain; add to the scene
   readonly waterGroup: THREE.Group; // translucent water; drawn in its own alpha pass
+  readonly lavaGroup: THREE.Group; // opaque lava surface; its own pass too
   get waterField(): Uint8Array; // current 0/1 water field (physics/medium read this)
   get lavaField(): Uint8Array; // current 0/1 lava field (the observer's medium reads this)
-  rebuildAround(x, y, z): void; // remesh only the chunks an edit at (x,y,z) touches
+  rebuildAround(x, y, z): [number, number, number][]; // remesh affected chunks; returns the
+  //                                                     cells the reaction converted (for vfx)
 }
 ```
 
-Renders the world as a grid of per-chunk meshes — opaque terrain + a translucent water pass — over
-the core's `buildGreedyChunkMesh` / `buildWaterChunkMesh` / `chunksAffectedByEdit`. Per edit,
+Renders the world as a grid of per-chunk meshes — opaque terrain + a water and a lava fluid pass —
+over the core's `buildGreedyChunkMesh` / `buildFluidChunkMesh` / `chunksAffectedByEdit`. Per edit,
 `rebuildAround` first mutates the world through the core's rules — `settle` (gravity), then
 `reactFully` (water↔lava → obsidian/stone, #117) — then recomputes and diffs the RGB light and the
 water + lava fields, remeshing only the chunks whose geometry, a settled or reacted cell, light,
@@ -658,8 +665,11 @@ field, so the whole tongue glows in the scene (#116). Verified by the smoke test
 render, and by unit oracles: its assembled geometry equals an independent whole-world `buildMesh`,
 its chunk colours equal the independently-composed greedy-mesh × lava-lit light truth (and differ
 from unlit — the wiring can't drop the emissive silently), its `lavaField` equals a from-scratch
-`computeLava` after edits, an edit that pours water onto lava reacts in the same rebuild, and
-incremental edits leave every chunk byte-identical (geometry AND colours) to a from-scratch build.
+`computeLava` after edits, an edit that pours water onto lava reacts in the same rebuild (and
+returns exactly the converted cells — where the shell plays its quench puffs), the `lavaGroup`'s
+geometry is byte-identical to the composed `buildFluidChunkMesh` truth, and incremental edits
+leave every chunk (all three passes) byte-identical (geometry AND colours) to a from-scratch
+build.
 
 > Invariant: the union of chunk geometries equals the whole-world mesh, and incremental edits
 > keep the full scene state — including shading — equal to a from-scratch build (no stale seams,

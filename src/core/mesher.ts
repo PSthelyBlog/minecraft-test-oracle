@@ -30,12 +30,13 @@ import { MAX_LIGHT, type RGBLight } from "./light";
 
 /**
  * Whether a block contributes geometry to the OPAQUE terrain mesh. Air is empty;
- * Water is non-empty but drawn separately as a translucent fluid (see `waterMesh.ts`),
- * so the terrain mesher skips both. Water stays non-opaque, so it still reveals the
- * faces of solid blocks behind it — you see the lakebed through it.
+ * Water and Lava are non-empty but drawn separately as fluids (see `fluidMesh.ts` —
+ * their derived presence fields are meshed, not the source blocks), so the terrain
+ * mesher skips all three. Both stay non-opaque, so they still reveal the faces of
+ * solid blocks behind them — you see the lakebed through water.
  */
 export function rendersInTerrain(id: BlockId): boolean {
-  return id !== Block.Air && id !== Block.Water;
+  return id !== Block.Air && id !== Block.Water && id !== Block.Lava;
 }
 
 export interface ChunkMesh {

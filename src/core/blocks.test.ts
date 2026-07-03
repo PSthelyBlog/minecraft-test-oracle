@@ -109,4 +109,24 @@ describe("blocks oracle", () => {
       expect(BLOCKS[id]).toBeDefined();
     }
   });
+
+  // GOLDEN: the hotbar order is player-facing muscle memory (keys 1–9 reach the first
+  // nine; scroll reaches the rest). Frozen so a reorder or a dropped fluid is loud.
+  test("golden: the hotbar order, with both fluids at the end", () => {
+    expect(HOTBAR).toEqual([
+      Block.Grass,
+      Block.Dirt,
+      Block.Stone,
+      Block.Cobblestone,
+      Block.Planks,
+      Block.Log,
+      Block.Leaves,
+      Block.Sand,
+      Block.Glass,
+      Block.Brick,
+      Block.Glowstone,
+      Block.Water,
+      Block.Lava,
+    ]);
+  });
 });
